@@ -4,7 +4,7 @@
 # Uses custom server.mjs with Next.js (no standalone mode).
 # Two-stage build to keep the final image lean.
 
-FROM node:18-alpine AS base
+FROM node:20-alpine AS base
 
 # -------------------------------------------
 # Stage 1: Install dependencies & build

@@ -21,45 +21,55 @@ export const POST = withErrorHandling(async (request: Request) => {
   if (!limiter(clientIp(request))) return fail('Demasiados intentos, inténtalo más tarde', 429);
 
   const parsed = input.safeParse(body);
-  if (!parsed.success) return fail('Datos de registro inválidos');
-
-  const { email, username, password, displayName } = parsed.data;
-  const exists = await prisma.user.findFirst({
-    where: { OR: [{ email: email.toLowerCase() }, { username: { equals: username, mode: 'insensitive' } }] },
-  });
-  if (exists) return fail('El correo o nombre de usuario ya existe', 409);
-
-  let user;
-  try {
-    user = await prisma.user.create({
-      data: {
-        email: email.toLowerCase(),
-        username,
-        displayName: displayName ?? username,
-        passwordHash: await bcrypt.hash(password, 12),
-      },
-    });
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      return fail('El correo o nombre de usuario ya existe', 409);
-    }
-    throw error;
+  if (!parsed.success) {
+    console.error('Error en registro: validación fallida', JSON.stringify(parsed.error.issues));
+    return fail('Datos de registro inválidos');
   }
 
-  sendVerificationEmail(user).catch((error) => console.warn('[register] no se pudo enviar el correo de verificación:', error));
+  const { email, username, password, displayName } = parsed.data;
 
-  return ok(
-    {
-      ...(await issueTokenPair(user)),
-      user: {
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        displayName: user.displayName,
-        emailVerifiedAt: user.emailVerifiedAt,
-        onboardingCompleted: user.onboardingCompleted,
+  try {
+    const exists = await prisma.user.findFirst({
+      where: { OR: [{ email: email.toLowerCase() }, { username: { equals: username, mode: 'insensitive' } }] },
+    });
+    if (exists) return fail('El correo o nombre de usuario ya existe', 409);
+
+    let user;
+    try {
+      user = await prisma.user.create({
+        data: {
+          email: email.toLowerCase(),
+          username,
+          displayName: displayName ?? username,
+          passwordHash: await bcrypt.hash(password, 12),
+        },
+      });
+    } catch (error) {
+      console.error('Error en registro: prisma.user.create', error);
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return fail('El correo o nombre de usuario ya existe', 409);
+      }
+      throw error;
+    }
+
+    sendVerificationEmail(user).catch((error) => console.warn('[register] no se pudo enviar el correo de verificación:', error));
+
+    return ok(
+      {
+        ...(await issueTokenPair(user)),
+        user: {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          displayName: user.displayName,
+          emailVerifiedAt: user.emailVerifiedAt,
+          onboardingCompleted: user.onboardingCompleted,
+        },
       },
-    },
-    201
-  );
+      201
+    );
+  } catch (error) {
+    console.error('Error en registro:', error);
+    throw error;
+  }
 });

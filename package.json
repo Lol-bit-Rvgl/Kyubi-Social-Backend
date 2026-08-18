@@ -1,0 +1,39 @@
+{
+  "name": "kyubi-social-backend",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "node server.mjs",
+    "build": "next build",
+    "start": "set NODE_ENV=production&& node server.mjs",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "npx tsx ../prisma/seed.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "prisma": {
+    "seed": "npx tsx ../prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.3.1",
+    "bcryptjs": "^2.4.3",
+    "jose": "^5.10.0",
+    "next": "^16.3.0",
+    "nodemailer": "^9.0.5",
+    "socket.io": "^4.8.3",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.13.1",
+    "@types/nodemailer": "^8.0.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "prisma": "^6.3.1",
+    "tsx": "^4.23.12",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.10"
+  }
+}

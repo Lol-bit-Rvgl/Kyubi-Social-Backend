@@ -1,0 +1,554 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PostVisibility {
+  PUBLIC
+  FOLLOWERS
+  PRIVATE
+  CIRCLE
+  PRIVATE_LINK
+}
+
+enum ReactionType {
+  LIKE
+  LOVE
+  LAUGH
+  WOW
+  SAD
+  ANGRY
+}
+
+enum TokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  HATE_SPEECH
+  VIOLENCE
+  ADULT_CONTENT
+  SPOILERS
+  IMPERSONATION
+  COPYRIGHT
+  SELF_HARM
+  OTHER
+}
+
+enum ReportTargetType {
+  POST
+  COMMENT
+  USER
+  WALL_ENTRY
+  MESSAGE
+}
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+  OWNER
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+enum ModerationAction {
+  MUTE_USER
+  UNMUTE_USER
+  BAN_USER
+  UNBAN_USER
+  DELETE_POST
+  DELETE_CIRCLE
+  DELETE_SALA
+  REVIEW_REPORT
+  RESOLVE_REPORT
+  DISMISS_REPORT
+  CHANGE_ROLE
+}
+
+enum ModerationTargetType {
+  USER
+  POST
+  CIRCLE
+  ROOM
+  REPORT
+}
+
+enum CircleRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum RoomStatus {
+  ACTIVE
+  ENDED
+}
+
+enum RoomAccess {
+  PUBLIC
+  PRIVATE
+}
+
+enum RoomKind {
+  SOCIAL
+}
+
+enum NotificationType {
+  FOLLOW
+  REACTION
+  COMMENT
+  MENTION
+  WALL
+}
+
+model User {
+  id                  String              @id @default(cuid())
+  email               String              @unique
+  username            String              @unique
+  passwordHash        String
+  displayName         String?
+  avatarUrl           String?
+  bannerUrl           String?
+  bio                 String?             @db.VarChar(500)
+  emailVerifiedAt     DateTime?
+  role                UserRole            @default(USER)
+  onboardingCompleted Boolean             @default(false)
+  usernameColor       String?
+  avatarFrame         String?
+  level               Int                 @default(1)
+  isOnline            Boolean             @default(false)
+  gender              String?
+  showGender          Boolean             @default(true)
+  stickers            String[]            @default([])
+  interests           String[]            @default([])
+  socialLinks         Json?
+  voiceBioUrl         String?
+  hasPaymentPassword  Boolean             @default(false)
+  paymentPasswordHash String?
+  availability        Json?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  posts               Post[]
+  refreshTokens       RefreshToken[]
+  reactions           Reaction[]
+  following           Follow[]            @relation("Following")
+  followers           Follow[]            @relation("Followers")
+  verificationTokens  VerificationToken[]
+  comments            Comment[]
+  commentReactions    CommentReaction[]
+  visitsMade          ProfileVisit[]      @relation("Visitor")
+  visitsReceived      ProfileVisit[]      @relation("Visited")
+  drafts              Draft[]
+  wallOwned           WallEntry[]         @relation("WallOwned")
+  wallAuthored        WallEntry[]         @relation("WallAuthor")
+  wallLikes           WallLike[]
+  conversationMemberships ConversationMember[]
+  messagesSent        Message[]
+  reportsMade         Report[]            @relation("ReportAuthor")
+  notifications       Notification[]      @relation("NotificationsReceived")
+  notificationsAuthored Notification[]    @relation("NotificationsAuthored")
+  circlesCreated      Circle[]            @relation("CircleCreator")
+  circleMemberships   CircleMember[]
+  roomsHosted         Room[]              @relation("RoomHost")
+  roomParticipations  RoomParticipant[]
+  mutesReceived       Mute[]              @relation("MutedUser")
+  mutesIssued         Mute[]              @relation("MuteModerator")
+  bansReceived        Ban[]               @relation("BannedUser")
+  bansIssued          Ban[]               @relation("BanModerator")
+  moderationActions   ModerationLog[]     @relation("ModeratorAction")
+  reportsHandled      Report[]            @relation("ReportHandler")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  follower    User     @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
+  following   User     @relation("Followers", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
+}
+
+model VerificationToken {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       TokenType @default(EMAIL_VERIFICATION)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, type])
+}
+
+model Post {
+  id             String         @id @default(cuid())
+  authorId       String
+  author         User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  content        String         @db.VarChar(10000)
+  title          String?        @db.VarChar(300)
+  type           String         @default("TEXT")
+  visibility     PostVisibility @default(PUBLIC)
+  coverImageUrl  String?
+  bgImageUrl     String?
+  bgOverlay      Float          @default(0.55)
+  bgBlur         Boolean        @default(false)
+  tags           String[]       @default([])
+  genres         String[]       @default([])
+  mediaUrls      String[]       @default([])
+  audioUrl       String?
+  views          Int            @default(0)
+  shares         Int            @default(0)
+  chapterMode    Boolean        @default(false)
+  chapterNumber  Int?
+  fontFamily     String?
+  themeBgColor   String?
+  themeAccent    String?
+  warnViolence   Boolean        @default(false)
+  warnAdult      Boolean        @default(false)
+  warnDark       Boolean        @default(false)
+  warnSpoiler    Boolean        @default(false)
+  allowComments  Boolean        @default(true)
+  allowReactions Boolean        @default(true)
+  publishedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  reactions      Reaction[]
+  comments       Comment[]
+  circleId       String?
+  circle         Circle?        @relation(fields: [circleId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([authorId, createdAt])
+}
+
+model Reaction {
+  id     String       @id @default(cuid())
+  postId String
+  userId String
+  type   ReactionType @default(LIKE)
+  post   Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+}
+
+model Comment {
+  id        String            @id @default(cuid())
+  postId    String
+  userId    String
+  body      String            @db.VarChar(4000)
+  parentId  String?
+  mediaUrl  String?
+  mediaType String?
+  isEdited  Boolean           @default(false)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  post      Post              @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent    Comment?          @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[]         @relation("CommentReplies")
+  reactions CommentReaction[]
+
+  @@index([postId, createdAt])
+  @@index([parentId])
+}
+
+model CommentReaction {
+  id        String       @id @default(cuid())
+  commentId String
+  userId    String
+  type      ReactionType @default(LIKE)
+  comment   Comment      @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId])
+}
+
+model ProfileVisit {
+  id        String   @id @default(cuid())
+  visitorId String
+  visitedId String
+  visitor   User     @relation("Visitor", fields: [visitorId], references: [id], onDelete: Cascade)
+  visited   User     @relation("Visited", fields: [visitedId], references: [id], onDelete: Cascade)
+  visitedAt DateTime @default(now())
+
+  @@index([visitedId, visitedAt])
+  @@unique([visitorId, visitedId])
+}
+
+model Draft {
+  id        String   @id @default(cuid())
+  userId    String
+  snapshot  Json
+  postId    String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model WallEntry {
+  id        String   @id @default(cuid())
+  ownerId   String
+  authorId  String
+  body      String   @db.VarChar(4000)
+  imageUrl  String?
+  parentId  String?
+  owner     User     @relation("WallOwned", fields: [ownerId], references: [id], onDelete: Cascade)
+  author    User     @relation("WallAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  parent    WallEntry? @relation("WallReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   WallEntry[] @relation("WallReplies")
+  likes     WallLike[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId, createdAt])
+  @@index([parentId])
+}
+
+model WallLike {
+  id         String    @id @default(cuid())
+  entryId    String
+  userId     String
+  type       ReactionType @default(LIKE)
+  entry      WallEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([entryId, userId])
+}
+
+model Conversation {
+  id        String             @id @default(cuid())
+  type      ConversationType   @default(DIRECT)
+  title     String?            @db.VarChar(120)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  members   ConversationMember[]
+  messages  Message[]
+
+  @@index([updatedAt])
+}
+
+model ConversationMember {
+  id                String       @id @default(cuid())
+  conversationId    String
+  userId            String
+  role              String       @default("MEMBER")
+  lastReadMessageId String?
+  lastReadAt        DateTime?
+  muted             Boolean      @default(false)
+  joinedAt          DateTime     @default(now())
+  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadMessage   Message?     @relation("MessageLastRead", fields: [lastReadMessageId], references: [id], onDelete: SetNull)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  senderId       String
+  body           String       @db.VarChar(4000)
+  mediaUrl       String?
+  mediaType      String?
+  replyToId      String?
+  editedAt       DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  replyTo        Message?     @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies        Message[]    @relation("MessageReply")
+  readBy         ConversationMember[] @relation("MessageLastRead")
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+model Report {
+  id         String           @id @default(cuid())
+  reporterId String
+  reason     ReportReason
+  details    String?          @db.VarChar(2000)
+  targetType ReportTargetType
+  targetId   String
+  status         ReportStatus    @default(OPEN)
+  handledById    String?
+  handledBy      User?            @relation("ReportHandler", fields: [handledById], references: [id], onDelete: SetNull)
+  resolutionNote String?          @db.VarChar(2000)
+  resolvedAt     DateTime?
+  createdAt  DateTime         @default(now())
+  reporter   User             @relation("ReportAuthor", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([targetType, targetId])
+  @@index([status])
+  @@index([reporterId])
+}
+
+model Notification {
+  id         String           @id @default(cuid())
+  userId     String
+  actorId    String?
+  type       NotificationType
+  targetType String?
+  targetId   String?
+  text       String?          @db.VarChar(500)
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+  user       User             @relation("NotificationsReceived", fields: [userId], references: [id], onDelete: Cascade)
+  actor      User?            @relation("NotificationsAuthored", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([userId, readAt, createdAt])
+  @@index([userId, type])
+}
+
+model Circle {
+  id          String         @id @default(cuid())
+  name        String         @db.VarChar(80)
+  description String?        @db.VarChar(600)
+  avatarUrl   String?
+  bannerUrl   String?
+  isPrivate   Boolean        @default(false)
+  creatorId   String
+  creator     User           @relation("CircleCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  members     CircleMember[]
+  posts       Post[]
+  rooms       Room[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([createdAt])
+}
+
+model CircleMember {
+  id       String     @id @default(cuid())
+  circleId String
+  userId   String
+  role     CircleRole @default(MEMBER)
+  joinedAt DateTime   @default(now())
+  circle   Circle     @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([circleId, userId])
+  @@index([userId])
+}
+
+model Room {
+  id           String             @id @default(cuid())
+  name         String             @db.VarChar(80)
+  description  String?            @db.VarChar(600)
+  imageUrl     String?
+  hostId       String
+  host         User               @relation("RoomHost", fields: [hostId], references: [id], onDelete: Cascade)
+  status       RoomStatus         @default(ACTIVE)
+  access       RoomAccess         @default(PUBLIC)
+  kind         RoomKind           @default(SOCIAL)
+  capacity     Int?
+  circleId     String?
+  circle       Circle?            @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  participants RoomParticipant[]
+  createdAt    DateTime           @default(now())
+  endedAt      DateTime?
+
+  @@index([status, createdAt])
+  @@index([circleId])
+}
+
+model RoomParticipant {
+  id       String   @id @default(cuid())
+  roomId   String
+  userId   String
+  role     String   @default("PARTICIPANT")
+  joinedAt DateTime @default(now())
+  leftAt   DateTime?
+  room     Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+}
+
+model Mute {
+  id           String    @id @default(cuid())
+  userId       String
+  moderatorId  String
+  reason       String?   @db.VarChar(1000)
+  expiresAt    DateTime?
+  revokedAt    DateTime?
+  revokedById  String?
+  createdAt    DateTime   @default(now())
+  user         User      @relation("MutedUser", fields: [userId], references: [id], onDelete: Cascade)
+  moderator    User      @relation("MuteModerator", fields: [moderatorId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([moderatorId])
+  @@index([createdAt])
+}
+
+model Ban {
+  id           String    @id @default(cuid())
+  userId       String
+  moderatorId  String
+  reason       String?   @db.VarChar(1000)
+  expiresAt    DateTime?
+  revokedAt    DateTime?
+  revokedById  String?
+  createdAt    DateTime   @default(now())
+  user         User      @relation("BannedUser", fields: [userId], references: [id], onDelete: Cascade)
+  moderator    User      @relation("BanModerator", fields: [moderatorId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([moderatorId])
+  @@index([createdAt])
+}
+
+model ModerationLog {
+  id           String               @id @default(cuid())
+  moderatorId  String
+  action       ModerationAction
+  targetType   ModerationTargetType
+  targetId     String
+  reason       String?              @db.VarChar(1000)
+  metadata     Json?
+  createdAt    DateTime             @default(now())
+  moderator    User                 @relation("ModeratorAction", fields: [moderatorId], references: [id], onDelete: Cascade)
+
+  @@index([moderatorId, createdAt])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}

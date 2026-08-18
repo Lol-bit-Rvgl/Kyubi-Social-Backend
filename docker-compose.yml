@@ -1,0 +1,11 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kyubi
+      POSTGRES_PASSWORD: kyubi
+      POSTGRES_DB: kyubi
+    ports: ["5432:5432"]
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+volumes:
+  postgres_data:

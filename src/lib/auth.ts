@@ -1,0 +1,105 @@
+import { randomBytes } from 'crypto';
+import bcrypt from 'bcryptjs';
+import { SignJWT, jwtVerify } from 'jose';
+import { sha256Hex } from './hash';
+import { prisma } from './prisma';
+import { getActiveBan } from './moderation';
+
+const rawSecret = process.env.JWT_SECRET;
+if (!rawSecret || rawSecret.length < 32) {
+  throw new Error('JWT_SECRET must be set and contain at least 32 characters');
+}
+const secret = new TextEncoder().encode(rawSecret);
+
+export const hash = sha256Hex;
+
+export type Session = { userId: string; email: string; username: string };
+
+const DUMMY_HASH = bcrypt.hashSync('timing-equalizer-password', 12);
+
+export function verifyPassword(password: string, passwordHash: string | null) {
+  return bcrypt.compare(password, passwordHash ?? DUMMY_HASH);
+}
+
+export async function signAccessToken(session: Session) {
+  return new SignJWT({ email: session.email, username: session.username })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(session.userId)
+    .setIssuedAt()
+    .setExpirationTime(process.env.ACCESS_TOKEN_TTL ?? '15m')
+    .sign(secret);
+}
+
+export async function requireSession(request: Request): Promise<Session | null> {
+  const token = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, secret);
+    return { userId: payload.sub!, email: String(payload.email), username: String(payload.username) };
+  } catch {
+    return null;
+  }
+}
+
+export async function issueTokenPair(user: { id: string; email: string; username: string }) {
+  const accessToken = await signAccessToken({ userId: user.id, email: user.email, username: user.username });
+  const refreshToken = randomBytes(48).toString('base64url');
+  const days = Number(process.env.REFRESH_TOKEN_DAYS ?? 30);
+  await prisma.refreshToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: hash(refreshToken),
+      expiresAt: new Date(Date.now() + days * 86400000),
+    },
+  });
+  return { accessToken, refreshToken };
+}
+
+export async function rotateRefreshToken(refreshToken: string) {
+  const tokenHash = hash(refreshToken);
+  const record = await prisma.refreshToken.findUnique({
+    where: { tokenHash },
+    include: { user: true },
+  });
+  if (!record || record.expiresAt < new Date()) return null;
+
+  if (record.revokedAt) {
+    await prisma.refreshToken.updateMany({
+      where: { userId: record.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return null;
+  }
+
+  const ban = await getActiveBan(record.userId);
+  if (ban) {
+    await prisma.refreshToken.updateMany({
+      where: { userId: record.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return null;
+  }
+
+  await prisma.refreshToken.update({
+    where: { id: record.id },
+    data: { revokedAt: new Date() },
+  });
+  return issueTokenPair(record.user);
+}
+
+export async function revokeRefreshToken(refreshToken: string) {
+  await prisma.refreshToken.updateMany({
+    where: { tokenHash: hash(refreshToken), revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}
+
+export async function cleanupExpiredRefreshTokens() {
+  await prisma.refreshToken.deleteMany({
+    where: { OR: [{ revokedAt: { not: null } }, { expiresAt: { lt: new Date() } }] },
+  });
+}
+
+export function clientIp(request: Request) {
+  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+}

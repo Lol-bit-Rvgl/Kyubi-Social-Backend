@@ -10,9 +10,17 @@ export function errorResponse(error: unknown): Response {
     if (error.code === 'P2002') return fail('Conflicto de datos: el valor ya existe', 409);
     if (error.code === 'P2025') return fail('Recurso no encontrado', 404);
     if (error.code === 'P2003') return fail('Operación inválida', 400);
+    if (error.code === 'P1001' || error.code === 'P1017') {
+      console.error('[api] prisma connection error:', error.code, error.message);
+      return fail('Servicio de base de datos no disponible', 503);
+    }
   }
   if (error instanceof Prisma.PrismaClientValidationError) {
     return fail('Datos inválidos', 400);
+  }
+  if (error instanceof Prisma.PrismaClientRustPanicError) {
+    console.error('[api] prisma rust panic:', error.message);
+    return fail('Error interno del servidor', 500);
   }
   if (error instanceof ZodError) {
     return NextResponse.json({ message: 'Datos inválidos', issues: error.issues }, { status: 400 });

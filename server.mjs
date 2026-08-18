@@ -11,6 +11,13 @@ try {
   // .env opcional en producción
 }
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] unhandledRejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[server] uncaughtException:', err);
+});
+
 const dev = process.env.NODE_ENV !== 'production';
 const port = parseInt(process.env.PORT || '3000', 10);
 const hostname = process.env.HOSTNAME || '0.0.0.0';
@@ -22,7 +29,17 @@ const secret = new TextEncoder().encode(process.env.JWT_SECRET || '');
 
 await app.prepare();
 
-const server = createServer((req, res) => handle(req, res));
+const server = createServer((req, res) => {
+  try {
+    handle(req, res);
+  } catch (err) {
+    console.error('[server] request handler error:', err);
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ message: 'Error interno del servidor' }));
+    }
+  }
+});
 
 const io = new SocketIOServer(server, {
   cors: {

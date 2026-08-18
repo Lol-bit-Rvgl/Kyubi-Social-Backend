@@ -22,10 +22,14 @@ export const hash = sha256Hex;
 
 export type Session = { userId: string; email: string; username: string };
 
-const DUMMY_HASH = bcrypt.hashSync('timing-equalizer-password', 12);
+let _dummyHash: string | null = null;
+function getDummyHash() {
+  if (_dummyHash == null) _dummyHash = bcrypt.hashSync('timing-equalizer-password', 12);
+  return _dummyHash;
+}
 
 export function verifyPassword(password: string, passwordHash: string | null) {
-  return bcrypt.compare(password, passwordHash ?? DUMMY_HASH);
+  return bcrypt.compare(password, passwordHash ?? getDummyHash());
 }
 
 export async function signAccessToken(session: Session) {

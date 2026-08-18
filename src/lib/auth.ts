@@ -5,11 +5,18 @@ import { sha256Hex } from './hash';
 import { prisma } from './prisma';
 import { getActiveBan } from './moderation';
 
-const rawSecret = process.env.JWT_SECRET;
-if (!rawSecret || rawSecret.length < 32) {
-  throw new Error('JWT_SECRET must be set and contain at least 32 characters');
+const BUILD_SECRET_PLACEHOLDER = 'build-time-placeholder-do-not-use-in-production';
+
+function getSecret(): Uint8Array {
+  const rawSecret = process.env.JWT_SECRET;
+  if (!rawSecret || rawSecret.length < 32) {
+    if (process.env.NEXT_PHASE === 'phase-production-build') {
+      return new TextEncoder().encode(BUILD_SECRET_PLACEHOLDER);
+    }
+    throw new Error('JWT_SECRET must be set and contain at least 32 characters');
+  }
+  return new TextEncoder().encode(rawSecret);
 }
-const secret = new TextEncoder().encode(rawSecret);
 
 export const hash = sha256Hex;
 
@@ -27,14 +34,14 @@ export async function signAccessToken(session: Session) {
     .setSubject(session.userId)
     .setIssuedAt()
     .setExpirationTime(process.env.ACCESS_TOKEN_TTL ?? '15m')
-    .sign(secret);
+    .sign(getSecret());
 }
 
 export async function requireSession(request: Request): Promise<Session | null> {
   const token = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, secret);
+    const { payload } = await jwtVerify(token, getSecret());
     return { userId: payload.sub!, email: String(payload.email), username: String(payload.username) };
   } catch {
     return null;

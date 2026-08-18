@@ -28,6 +28,7 @@ FROM base AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV PORT=3000
 
 RUN apk add --no-cache dumb-init curl
 
@@ -46,10 +47,10 @@ COPY --from=builder /app/public ./public
 
 RUN chmod +x start.sh
 
-EXPOSE 3000
+EXPOSE ${PORT}
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -f http://localhost:3000/api/health || exit 1
+  CMD curl -f http://localhost:${PORT}/api/health || exit 1
 
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["./start.sh"]

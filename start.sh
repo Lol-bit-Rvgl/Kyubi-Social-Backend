@@ -1,4 +1,6 @@
 #!/bin/sh
 set -e
 
-node server.mjs
+export NODE_ENV=production
+
+exec node server.mjs

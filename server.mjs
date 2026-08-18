@@ -20,14 +20,19 @@ process.on('uncaughtException', (err) => {
 
 const dev = process.env.NODE_ENV !== 'production';
 const port = parseInt(process.env.PORT || '3000', 10);
-const hostname = process.env.HOSTNAME || '0.0.0.0';
+const hostname = '0.0.0.0';
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 const secret = new TextEncoder().encode(process.env.JWT_SECRET || '');
 
-await app.prepare();
+try {
+  await app.prepare();
+} catch (err) {
+  console.error('[server] app.prepare() failed:', err);
+  process.exit(1);
+}
 
 const server = createServer((req, res) => {
   try {

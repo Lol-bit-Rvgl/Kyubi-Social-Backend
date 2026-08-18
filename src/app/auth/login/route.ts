@@ -9,9 +9,11 @@ const input = z.object({ email: z.string().email(), password: z.string().min(1) 
 const limiter = createRateLimiter({ windowMs: 15 * 60_000, max: 10 });
 
 export const POST = withErrorHandling(async (request: Request) => {
+  const body = await request.json().catch(() => null);
+  console.log('[Login Request]', request.method, request.url, JSON.stringify(body));
   if (!limiter(clientIp(request))) return fail('Demasiados intentos, inténtalo más tarde', 429);
 
-  const parsed = input.safeParse(await request.json().catch(() => null));
+  const parsed = input.safeParse(body);
   if (!parsed.success) return fail('Credenciales inválidas', 401);
 
   const user = await prisma.user.findUnique({ where: { email: parsed.data.email.toLowerCase() } });

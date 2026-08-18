@@ -16,9 +16,11 @@ const input = z.object({
 const limiter = createRateLimiter({ windowMs: 15 * 60_000, max: 5 });
 
 export const POST = withErrorHandling(async (request: Request) => {
+  const body = await request.json().catch(() => null);
+  console.log('[Register Request]', request.method, request.url, JSON.stringify(body));
   if (!limiter(clientIp(request))) return fail('Demasiados intentos, inténtalo más tarde', 429);
 
-  const parsed = input.safeParse(await request.json().catch(() => null));
+  const parsed = input.safeParse(body);
   if (!parsed.success) return fail('Datos de registro inválidos');
 
   const { email, username, password, displayName } = parsed.data;

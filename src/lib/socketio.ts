@@ -22,3 +22,9 @@ export function emitToUser(userId: string, event: string, payload: unknown) {
   if (!io) return;
   io.to(`user:${userId}`).emit(event, payload);
 }
+
+export function emitToSala(roomId: string, event: string, payload: unknown) {
+  const io = getSocketIO();
+  if (!io) return;
+  io.to(`sala:${roomId}`).emit(event, payload);
+}

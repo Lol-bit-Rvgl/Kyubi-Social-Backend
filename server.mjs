@@ -88,6 +88,16 @@ io.on('connection', (socket) => {
       socket.leave(`conversation:${conversationId}`);
     }
   });
+  socket.on('room:join', (roomId) => {
+    if (typeof roomId === 'string' && roomId) {
+      socket.join(`sala:${roomId}`);
+    }
+  });
+  socket.on('room:leave', (roomId) => {
+    if (typeof roomId === 'string' && roomId) {
+      socket.leave(`sala:${roomId}`);
+    }
+  });
   socket.on('typing', (payload) => {
     const conversationId = payload?.conversationId;
     if (typeof conversationId !== 'string' || !conversationId) return;

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { requireSession } from '@/lib/auth';
 import { conversationInclude, serializeConversation } from '@/lib/chat';
-import { emitToConversation } from '@/lib/socketio';
+import { emitToConversation, emitToUser } from '@/lib/socketio';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { findUserByIdOrUsername } from '@/lib/users';
@@ -104,6 +104,12 @@ export const POST = withErrorHandling(async (request: Request) => {
 
   emitToConversation(conversation.id, 'conversation:new', {
     conversation: serializeConversation(conversation, session.userId, 0),
+  });
+  // El destinatario aún no se ha unido al canal `conversation:<id>` (solo
+  // se une al abrir el chat). Le empujamos el evento a su sala personal para
+  // que la nueva conversación le aparezca en la bandeja en tiempo real.
+  emitToUser(targetId, 'conversation:new', {
+    conversation: serializeConversation(conversation, targetId, 0),
   });
 
   return ok(serializeConversation(conversation, session.userId, 0), 201);

@@ -169,6 +169,7 @@ model User {
   circleMemberships   CircleMember[]
   roomsHosted         Room[]              @relation("RoomHost")
   roomParticipations  RoomParticipant[]
+  roomMessages        RoomMessage[]
   mutesReceived       Mute[]              @relation("MutedUser")
   mutesIssued         Mute[]              @relation("MuteModerator")
   bansReceived        Ban[]               @relation("BannedUser")
@@ -482,11 +483,24 @@ model Room {
   circleId     String?
   circle       Circle?            @relation(fields: [circleId], references: [id], onDelete: Cascade)
   participants RoomParticipant[]
+  messages     RoomMessage[]
   createdAt    DateTime           @default(now())
   endedAt      DateTime?
 
   @@index([status, createdAt])
   @@index([circleId])
+}
+
+model RoomMessage {
+  id        String   @id @default(cuid())
+  roomId    String
+  senderId  String
+  body      String   @db.VarChar(4000)
+  createdAt DateTime @default(now())
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
 }
 
 model RoomParticipant {

@@ -3,7 +3,7 @@ import { requireSession } from '@/lib/auth';
 import { messageInclude, serializeMessage } from '@/lib/chat';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
-import { emitToConversation } from '@/lib/socketio';
+import { emitToConversation, emitToUser } from '@/lib/socketio';
 
 export const GET = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireSession(request);
@@ -118,5 +118,15 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   });
 
   emitToConversation(id, 'message:new', serializeMessage(message));
+  // El receptor puede no estar unido al canal `conversation:<id>` (solo se une
+  // al abrir el chat). Empujamos también a la sala personal de cada miembro
+  // (salvo el emisor) para mantener la bandeja de conversaciones al día.
+  const memberIds = await prisma.conversationMember.findMany({
+    where: { conversationId: id, userId: { not: session.userId } },
+    select: { userId: true },
+  });
+  for (const member of memberIds) {
+    emitToUser(member.userId, 'message:new', serializeMessage(message));
+  }
   return ok(serializeMessage(message), 201);
 });

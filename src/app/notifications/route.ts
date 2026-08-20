@@ -13,7 +13,7 @@ export const GET = withErrorHandling(async (request: Request) => {
 
   const where = { userId: session.userId };
 
-  const [items, total, unread] = await Promise.all([
+  const [items, total, unread, followed] = await Promise.all([
     prisma.notification.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -23,10 +23,15 @@ export const GET = withErrorHandling(async (request: Request) => {
     }),
     prisma.notification.count({ where }),
     prisma.notification.count({ where: { ...where, readAt: null } }),
+    prisma.follow.findMany({
+      where: { followerId: session.userId },
+      select: { followingId: true },
+    }),
   ]);
+  const followedIds = new Set(followed.map((f) => f.followingId));
 
   return ok({
-    data: items.map(serializeNotification),
+    data: items.map((n) => serializeNotification(n, followedIds)),
     total,
     page,
     pages: Math.max(1, Math.ceil(total / limit)),

@@ -26,11 +26,21 @@ export type NotificationPayload = Prisma.NotificationGetPayload<{
   include: typeof notificationInclude;
 }>;
 
-export function serializeNotification(notification: NotificationPayload) {
+export function serializeNotification(
+  notification: NotificationPayload,
+  followedIds?: Set<string>
+) {
   return {
     id: notification.id,
     type: notification.type,
-    actor: notification.actor ? serializeAuthor(notification.actor) : null,
+    actor: notification.actor
+      ? {
+          ...serializeAuthor(notification.actor),
+          isFollowing: followedIds
+            ? followedIds.has(notification.actor.id)
+            : false,
+        }
+      : null,
     targetType: notification.targetType,
     targetId: notification.targetId,
     text: notification.text,

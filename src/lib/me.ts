@@ -24,6 +24,7 @@ export type MePayload = {
   hasPaymentPassword: boolean;
   availability: unknown;
   createdAt: Date;
+  _count: { followers: number; following: number };
 };
 
 export function serializeMe(user: MePayload) {
@@ -51,6 +52,9 @@ export function serializeMe(user: MePayload) {
     hasPaymentPassword: user.hasPaymentPassword,
     availability: user.availability,
     createdAt: toIso(user.createdAt),
+    isFollowing: false,
+    followersCount: user._count?.followers ?? 0,
+    followingCount: user._count?.following ?? 0,
   };
 }
 
@@ -78,4 +82,5 @@ export const meSelect = {
   hasPaymentPassword: true,
   availability: true,
   createdAt: true,
+  _count: { select: { followers: true, following: true } },
 } as const;

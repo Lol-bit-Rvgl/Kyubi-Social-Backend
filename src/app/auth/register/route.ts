@@ -64,6 +64,9 @@ export const POST = withErrorHandling(async (request: Request) => {
           displayName: user.displayName,
           emailVerifiedAt: user.emailVerifiedAt,
           onboardingCompleted: user.onboardingCompleted,
+          isFollowing: false,
+          followersCount: 0,
+          followingCount: 0,
         },
       },
       201

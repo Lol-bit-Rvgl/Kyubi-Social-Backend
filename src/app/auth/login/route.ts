@@ -16,7 +16,10 @@ export const POST = withErrorHandling(async (request: Request) => {
   const parsed = input.safeParse(body);
   if (!parsed.success) return fail('Credenciales inválidas', 401);
 
-  const user = await prisma.user.findUnique({ where: { email: parsed.data.email.toLowerCase() } });
+  const user = await prisma.user.findUnique({
+    where: { email: parsed.data.email.toLowerCase() },
+    include: { _count: { select: { followers: true, following: true } } },
+  });
   const valid = await verifyPassword(parsed.data.password, user?.passwordHash ?? null);
   if (!user || !valid) return fail('Credenciales inválidas', 401);
 
@@ -33,6 +36,9 @@ export const POST = withErrorHandling(async (request: Request) => {
       emailVerifiedAt: user.emailVerifiedAt,
       onboardingCompleted: user.onboardingCompleted,
       role: user.role,
+      isFollowing: false,
+      followersCount: user._count?.followers ?? 0,
+      followingCount: user._count?.following ?? 0,
     },
   });
 });

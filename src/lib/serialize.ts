@@ -130,6 +130,12 @@ export function serializePost(
     author: serializeAuthor(post.author),
     coAuthors: [],
     characters: [],
+
+    // ── Firma de rol (OC) en publicaciones de círculo ──
+    characterId: post.characterId ?? null,
+    characterName: post.characterName ?? null,
+    characterAvatarUrl: post.characterAvatarUrl ?? null,
+
     circles: [],
     stats: {
       likes: reactionCounts.like,

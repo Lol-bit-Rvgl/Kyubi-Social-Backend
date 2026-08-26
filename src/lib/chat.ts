@@ -73,6 +73,13 @@ export function serializeMessage(message: MessagePayload) {
     mediaUrl: message.mediaUrl,
     mediaType: message.mediaType,
     replyToId: message.replyToId,
+
+    // ── Roleplay / OCs ──
+    characterId: message.characterId,
+    characterName: message.characterName,
+    characterAvatarUrl: message.characterAvatarUrl,
+    extensions: (message.extensions ?? {}) as Prisma.JsonObject,
+
     editedAt: toIso(message.editedAt),
     deletedAt: toIso(message.deletedAt),
     createdAt: toIso(message.createdAt)!,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { requireSession } from '@/lib/auth';
 import { messageInclude, serializeMessage } from '@/lib/chat';
 import { fail, ok, withErrorHandling } from '@/lib/http';
@@ -74,6 +75,12 @@ const sendSchema = z.object({
   mediaUrl: z.string().nullable().optional(),
   mediaType: z.string().nullable().optional(),
   replyToId: z.string().nullable().optional(),
+
+  // ── Roleplay / OCs ──
+  characterId: z.string().max(64).nullable().optional(),
+  characterName: z.string().max(80).nullable().optional(),
+  characterAvatarUrl: z.string().max(2048).nullable().optional(),
+  extensions: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
 export const POST = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
@@ -106,6 +113,12 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
         mediaUrl: body.data.mediaUrl ?? null,
         mediaType: body.data.mediaType ?? null,
         replyToId: body.data.replyToId ?? null,
+
+        characterId: body.data.characterId ?? null,
+        characterName: body.data.characterName ?? null,
+        characterAvatarUrl: body.data.characterAvatarUrl ?? null,
+        extensions: (body.data.extensions ?? {}) as Prisma.InputJsonValue,
+
       },
       include: messageInclude,
     });

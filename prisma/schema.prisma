@@ -170,6 +170,7 @@ model User {
   roomsHosted         Room[]              @relation("RoomHost")
   roomParticipations  RoomParticipant[]
   roomMessages        RoomMessage[]
+  characters          Character[]
   mutesReceived       Mute[]              @relation("MutedUser")
   mutesIssued         Mute[]              @relation("MuteModerator")
   bansReceived        Ban[]               @relation("BannedUser")
@@ -242,6 +243,12 @@ model Post {
   warnSpoiler    Boolean        @default(false)
   allowComments  Boolean        @default(true)
   allowReactions Boolean        @default(true)
+
+  // ── Roleplay / OCs ──
+  characterId        String?   @db.VarChar(64)
+  characterName      String?   @db.VarChar(80)
+  characterAvatarUrl String?
+
   publishedAt    DateTime?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
@@ -388,6 +395,13 @@ model Message {
   mediaUrl       String?
   mediaType      String?
   replyToId      String?
+
+  // ── Roleplay / OCs ──
+  characterId        String?   @db.VarChar(64)
+  characterName      String?   @db.VarChar(80)
+  characterAvatarUrl String?
+  extensions         Json      @default("{}")
+
   editedAt       DateTime?
   deletedAt      DateTime?
   createdAt      DateTime     @default(now())
@@ -496,11 +510,51 @@ model RoomMessage {
   roomId    String
   senderId  String
   body      String   @db.VarChar(4000)
+
+  // ── Roleplay / OCs ──
+  characterId        String?   @db.VarChar(64)
+  characterName      String?   @db.VarChar(80)
+  characterAvatarUrl String?
+  extensions         Json      @default("{}")
+
   createdAt DateTime @default(now())
   room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
 
   @@index([roomId, createdAt])
+}
+
+/// Ficha de Personaje / OC (Original Character) para roleplay.
+model Character {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String   @db.VarChar(60)
+  alias       String?  @db.VarChar(40)
+  tagline     String?  @db.VarChar(140)
+  avatarUrl   String?
+  bannerUrl   String?
+  description String?  @db.VarChar(2000)
+  lore        String?  @db.Text
+  appearance  String?  @db.Text
+
+  // Listas de etiquetas libres serializadas como JSON.
+  abilities  Json @default("[]")
+  weaknesses Json @default("[]")
+  universes  Json @default("[]")
+  genres     Json @default("[]")
+
+  faceClaim     String? @db.VarChar(120)
+  voiceClaim    String? @db.VarChar(120)
+  powerLevel    Int     @default(1)
+  roleplayLevel String  @default("Novato") @db.VarChar(24)
+  themeColor    String? @db.VarChar(9)
+  themeAccent   String? @db.VarChar(9)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model RoomParticipant {

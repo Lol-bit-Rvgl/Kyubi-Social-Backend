@@ -97,6 +97,10 @@ function serializeRoomMessage(message: {
   roomId: string;
   senderId: string;
   body: string;
+  characterId?: string | null;
+  characterName?: string | null;
+  characterAvatarUrl?: string | null;
+  extensions?: Prisma.JsonValue | null;
   createdAt: Date;
   sender: SenderPayload;
 }) {
@@ -106,12 +110,25 @@ function serializeRoomMessage(message: {
     senderId: message.senderId,
     sender: serializeAuthor(message.sender),
     body: message.body,
+
+    // ── Roleplay / OCs ──
+    characterId: message.characterId ?? null,
+    characterName: message.characterName ?? null,
+    characterAvatarUrl: message.characterAvatarUrl ?? null,
+    extensions: (message.extensions ?? {}) as Prisma.JsonObject,
+
     createdAt: message.createdAt.toISOString(),
   };
 }
 
 const sendSchema = z.object({
   body: z.string().trim().min(1).max(4000),
+
+  // ── Roleplay / OCs ──
+  characterId: z.string().max(64).nullable().optional(),
+  characterName: z.string().max(80).nullable().optional(),
+  characterAvatarUrl: z.string().max(2048).nullable().optional(),
+  extensions: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
 export const POST = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
@@ -140,6 +157,11 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
       roomId: id,
       senderId: session.userId,
       body: body.data.body,
+
+      characterId: body.data.characterId ?? null,
+      characterName: body.data.characterName ?? null,
+      characterAvatarUrl: body.data.characterAvatarUrl ?? null,
+      extensions: (body.data.extensions ?? {}) as Prisma.InputJsonValue,
     },
     include: { sender: true },
   });

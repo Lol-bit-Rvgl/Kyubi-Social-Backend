@@ -76,6 +76,11 @@ const createSchema = z.object({
   themeBgColor: z.string().nullable().optional(),
   themeAccent: z.string().nullable().optional(),
   fontFamily: z.string().nullable().optional(),
+
+  // ── Firma de rol (OC) ──
+  characterId: z.string().max(64).nullable().optional(),
+  characterName: z.string().max(80).nullable().optional(),
+  characterAvatarUrl: z.string().max(2048).nullable().optional(),
 });
 
 export const POST = withErrorHandling(async (request: Request, { params }: { params: Promise<{ circleId: string }> }) => {

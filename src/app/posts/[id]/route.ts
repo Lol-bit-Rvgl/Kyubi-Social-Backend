@@ -31,6 +31,22 @@ const editable = z.object({
   allowReactions: z.boolean().optional(),
 });
 
+/**
+ * Deduplicación de vistas por sesión de usuario (TTL en memoria).
+ * Clave `userId:postId`; expira a los 30 min o al reiniciar el servidor.
+ */
+const VIEW_TTL_MS = 30 * 60 * 1000;
+const recentViews = new Map<string, number>();
+
+function shouldCountView(userId: string, postId: string): boolean {
+  const key = `${userId}:${postId}`;
+  const now = Date.now();
+  const last = recentViews.get(key);
+  if (last !== undefined && now - last < VIEW_TTL_MS) return false;
+  recentViews.set(key, now);
+  return true;
+}
+
 export const GET = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireSession(request);
   if (!session) return fail('No autorizado', 401);
@@ -45,7 +61,12 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
   });
   if (!post) return fail('Publicación no encontrada', 404);
 
-  await prisma.post.update({ where: { id }, data: { views: { increment: 1 } } });
+  // No incrementa si el visitor es el autor o si ya registró vista reciente.
+  const isAuthor = post.authorId === session.userId;
+  const counts = !isAuthor && shouldCountView(session.userId, id);
+  if (counts) {
+    await prisma.post.update({ where: { id }, data: { views: { increment: 1 } } });
+  }
 
   const myReaction = await prisma.reaction.findUnique({
     where: { postId_userId: { postId: id, userId: session.userId } },
@@ -53,7 +74,7 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
   });
 
   const serialized = serializePost(
-    { ...post, views: (post.views ?? 0) + 1 },
+    { ...post, views: (post.views ?? 0) + (counts ? 1 : 0) },
     { myReactionKey: myReaction ? reactionKey(myReaction.type) : null }
   );
   return ok(serialized);

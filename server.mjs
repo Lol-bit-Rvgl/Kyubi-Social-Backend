@@ -54,6 +54,80 @@ const io = new SocketIOServer(server, {
   },
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Matchmaking aleatorio en tiempo real.
+// Cola por categoría: cuando dos sockets en la misma categoría están esperando
+// se emparejan al instante con `match:found`; si nadie llega dentro de
+// MATCH_TIMEOUT_MS se envía `match:none` al aspirante solitario.
+// ─────────────────────────────────────────────────────────────────────────────
+const MATCH_TIMEOUT_MS = Number(process.env.MATCH_TIMEOUT_MS || 30000);
+const matchQueue = new Map(); // category -> Map<userId, { socket, timer }>
+
+function removeFromMatchQueue(userId) {
+  for (const [category, waiters] of matchQueue) {
+    if (waiters.has(userId)) {
+      const entry = waiters.get(userId);
+      clearTimeout(entry.timer);
+      waiters.delete(userId);
+      if (waiters.size === 0) matchQueue.delete(category);
+    }
+  }
+}
+
+async function matchPrisma() {
+  if (!globalThis.__kyubiMatchPrisma) {
+    const { PrismaClient } = await import('@prisma/client');
+    const client = new PrismaClient({ log: ['error', 'warn'] });
+    client.$on('error', (e) => {
+      console.error('[matchmaking] prisma error:', e.message);
+    });
+    globalThis.__kyubiMatchPrisma = client;
+  }
+  return globalThis.__kyubiMatchPrisma;
+}
+
+function publicUserForMatch(u) {
+  return {
+    id: u.id,
+    username: u.username,
+    displayName: u.displayName || u.username,
+    avatarUrl: u.avatarUrl || null,
+    level: u.level ?? 1,
+    bio: u.bio || null,
+    interests: Array.isArray(u.interests) ? u.interests : [],
+  };
+}
+
+async function fetchPublicUser(userId, fallbackUsername) {
+  try {
+    const prisma = await matchPrisma();
+    const u = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        username: true,
+        displayName: true,
+        avatarUrl: true,
+        level: true,
+        bio: true,
+        interests: true,
+      },
+    });
+    if (u) return publicUserForMatch(u);
+  } catch (err) {
+    console.error('[matchmaking] fetch user failed:', err.message);
+  }
+  return {
+    id: userId,
+    username: fallbackUsername || '',
+    displayName: fallbackUsername || '',
+    avatarUrl: null,
+    level: 1,
+    bio: null,
+    interests: [],
+  };
+}
+
 io.use((socket, nextFn) => {
   const auth = socket.handshake.auth ?? {};
   const header = socket.handshake.headers?.authorization ?? '';
@@ -117,7 +191,61 @@ io.on('connection', (socket) => {
       lastReadMessageId: payload?.lastReadMessageId ?? null,
     });
   });
-  socket.on('disconnect', () => {});
+
+  // ── Matchmaking aleatorio ──────────────────────────────────────────────
+  socket.on('match:start', async (payload) => {
+    const myId = socket.data.userId;
+    if (!myId) return;
+    const category =
+      payload && typeof payload.category === 'string' && payload.category
+        ? payload.category
+        : 'general';
+
+    removeFromMatchQueue(myId);
+
+    let waiters = matchQueue.get(category);
+    const opponent = waiters
+      ? [...waiters.entries()].find(([id]) => id !== myId)
+      : undefined;
+
+    if (opponent) {
+      const [opponentId, opponentEntry] = opponent;
+      clearTimeout(opponentEntry.timer);
+      waiters.delete(opponentId);
+      if (waiters.size === 0) matchQueue.delete(category);
+
+      const [peerOfMine, peerOfOpponent] = await Promise.all([
+        fetchPublicUser(opponentId, opponentEntry.socket.data.username),
+        fetchPublicUser(myId, socket.data.username),
+      ]);
+
+      io.to(`user:${myId}`).emit('match:found', { peer: peerOfMine, category });
+      io.to(`user:${opponentId}`).emit('match:found', { peer: peerOfOpponent, category });
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const current = matchQueue.get(category);
+      if (!current || !current.has(myId)) return;
+      current.delete(myId);
+      if (current.size === 0) matchQueue.delete(category);
+      io.to(`user:${myId}`).emit('match:none', { category, reason: 'timeout' });
+    }, MATCH_TIMEOUT_MS);
+
+    if (!waiters) {
+      waiters = new Map();
+      matchQueue.set(category, waiters);
+    }
+    waiters.set(myId, { socket, timer });
+  });
+
+  socket.on('match:cancel', () => {
+    removeFromMatchQueue(socket.data.userId);
+  });
+
+  socket.on('disconnect', () => {
+    removeFromMatchQueue(socket.data.userId);
+  });
 });
 
 globalThis.__kyubiIo = io;

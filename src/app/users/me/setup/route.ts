@@ -2,7 +2,7 @@ import { requireSession } from '@/lib/auth';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { meSelect, serializeMe } from '@/lib/me';
 import { prisma } from '@/lib/prisma';
-import { saveUpload, uploadUrl } from '@/lib/upload';
+import { saveUpload } from '@/lib/upload';
 
 export const PATCH = withErrorHandling(async (request: Request) => {
   const session = await requireSession(request);
@@ -23,8 +23,7 @@ export const PATCH = withErrorHandling(async (request: Request) => {
   }
   const avatar = form.get('avatar');
   if (avatar && avatar instanceof File) {
-    const name = await saveUpload(avatar);
-    data.avatarUrl = uploadUrl(request, name);
+    data.avatarUrl = await saveUpload(avatar, 'avatar');
   }
   if (Object.keys(data).length === 0) return fail('Sin cambios');
 

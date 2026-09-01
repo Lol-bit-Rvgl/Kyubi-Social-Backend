@@ -1,6 +1,6 @@
 import { requireSession } from '@/lib/auth';
 import { fail, ok, withErrorHandling } from '@/lib/http';
-import { saveUpload, saveUploads, uploadUrl } from '@/lib/upload';
+import { saveUpload, saveUploads } from '@/lib/upload';
 
 export const POST = withErrorHandling(async (request: Request, { params }: { params: Promise<{ kind: string }> }) => {
   const session = await requireSession(request);
@@ -12,12 +12,12 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   if (kind === 'media') {
     const files = form.getAll('files').filter((f): f is File => f instanceof File);
     if (files.length === 0) return fail('No se recibieron archivos');
-    const names = await saveUploads(files);
-    return ok({ urls: names.map((n) => uploadUrl(request, n)) });
+    const urls = await saveUploads(files, kind);
+    return ok({ urls });
   }
 
   const file = form.get('file');
   if (!(file instanceof File)) return fail('No se recibió ningún archivo');
-  const name = await saveUpload(file);
-  return ok({ url: uploadUrl(request, name) });
+  const url = await saveUpload(file, kind);
+  return ok({ url });
 });

@@ -1,8 +1,7 @@
 import { randomUUID } from 'crypto';
-import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
-
-const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads');
+import sharp from 'sharp';
+import { getStorage } from '@/lib/storage';
 
 const EXT_BY_MIME: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -17,6 +16,15 @@ const EXT_BY_MIME: Record<string, string> = {
   'video/quicktime': '.mov',
 };
 
+/** MIME que se pueden optimizar con `sharp` (se convierten a WebP). */
+const IMAGE_MIMES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/avif',
+  'image/tiff',
+]);
+
 function extFor(file: File): string {
   const fromMime = EXT_BY_MIME[file.type];
   if (fromMime) return fromMime;
@@ -24,23 +32,86 @@ function extFor(file: File): string {
   return original && original.length <= 5 ? original : '';
 }
 
-export async function saveUpload(file: File): Promise<string> {
-  await mkdir(UPLOAD_DIR, { recursive: true });
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const name = `${randomUUID()}${extFor(file)}`;
-  await writeFile(path.join(UPLOAD_DIR, name), bytes);
-  return name;
-}
-
-export async function saveUploads(files: File[]): Promise<string[]> {
-  const names: string[] = [];
-  for (const file of files) {
-    names.push(await saveUpload(file));
+/** Carpeta lógica según el tipo de subida para keys ordenadas en el bucket. */
+export function folderFor(kind: string): string {
+  const k = (kind || '').toLowerCase();
+  switch (k) {
+    case 'avatar':
+      return 'avatars';
+    case 'banner':
+      return 'banners';
+    case 'media':
+      return 'media';
+    case 'post':
+    case 'attachment':
+      return 'posts';
+    default:
+      return 'misc';
   }
-  return names;
 }
 
-export function uploadUrl(request: Request, name: string): string {
-  const { protocol, host } = new URL(request.url);
-  return `${protocol}//${host}/uploads/${name}`;
+type OptimizedImage = { body: Buffer; contentType: string; ext: string };
+
+/**
+ * Comprime/redimensiona imágenes con `sharp` para optimizar el ancho de banda
+ * móvil. Las imágenes se normalizan a WebP (excepto GIF, para no romper la
+ * animación). Devuelve el buffer optimizado + su content-type y extensión.
+ */
+async function optimizeImage(
+  bytes: Buffer,
+  mime: string,
+): Promise<OptimizedImage> {
+  if (mime === 'image/gif') {
+    return { body: bytes, contentType: mime, ext: '.gif' };
+  }
+
+  const maxWidth = Number(process.env.IMAGE_MAX_WIDTH || 1600);
+  const quality = Number(process.env.IMAGE_QUALITY || 82);
+
+  const body = await sharp(bytes)
+    .rotate() // respeta orientación EXIF
+    .resize({ width: maxWidth, withoutEnlargement: true })
+    .webp({ quality, effort: 4 })
+    .toBuffer();
+
+  return { body, contentType: 'image/webp', ext: '.webp' };
+}
+
+/**
+ * Guarda un archivo y devuelve la URL pública remota (o local en modo dev).
+ *
+ * Las imágenes (excepto GIF) se optimizan con `sharp` a WebP. El destino final
+ * lo decide `STORAGE_DRIVER`: S3-compatible (AWS/R2) o disco `uploads/`.
+ */
+export async function saveUpload(file: File, kind = 'misc'): Promise<string> {
+  const storage = getStorage();
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const mime = (file.type || '').toLowerCase();
+
+  let body: Uint8Array = bytes;
+  let contentType = mime || 'application/octet-stream';
+  let ext = extFor(file);
+
+  if (IMAGE_MIMES.has(mime)) {
+    const optimized = await optimizeImage(bytes, mime);
+    body = optimized.body;
+    contentType = optimized.contentType;
+    ext = optimized.ext;
+  }
+
+  const key = `${folderFor(kind)}/${randomUUID()}${ext}`;
+  await storage.put(key, body, contentType);
+  return storage.publicUrl(key);
+}
+
+/** Versión en lote de [saveUpload]. */
+export async function saveUploads(
+  files: File[],
+  kind = 'misc',
+): Promise<string[]> {
+  const urls: string[] = [];
+  for (const file of files) {
+    urls.push(await saveUpload(file, kind));
+  }
+  return urls;
 }

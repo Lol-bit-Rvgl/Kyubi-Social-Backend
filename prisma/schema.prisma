@@ -178,6 +178,20 @@ model User {
   bansIssued          Ban[]               @relation("BanModerator")
   moderationActions   ModerationLog[]     @relation("ModeratorAction")
   reportsHandled      Report[]            @relation("ReportHandler")
+  deviceTokens        DeviceToken[]
+}
+
+/// Token FCM de un dispositivo registrado para notificaciones push.
+model DeviceToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform  String   @default("unknown") // android | ios | web | unknown
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model RefreshToken {

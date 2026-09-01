@@ -15,6 +15,8 @@ export type PrismaMock = {
   mute: { findFirst: Mock; findMany: Mock; findUnique: Mock; create: Mock; update: Mock; updateMany: Mock; count: Mock };
   moderationLog: { findMany: Mock; create: Mock; count: Mock };
   report: { findFirst: Mock; findMany: Mock; findUnique: Mock; create: Mock; update: Mock; count: Mock };
+  $queryRawUnsafe: Mock;
+  $queryRaw: Mock;
   $transaction: Mock;
 };
 

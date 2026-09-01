@@ -1,6 +1,7 @@
 import { NotificationType, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { emitToUser } from '@/lib/socketio';
+import { sendPushNotification } from '@/lib/fcm';
 import { serializeAuthor, timeAgo, toIso } from '@/lib/serialize';
 
 export type { NotificationType };
@@ -52,6 +53,15 @@ export function serializeNotification(
 
 type Target = { type: string; id?: string | null };
 
+/** Título push por tipo de notificación (Nebulæ en español). */
+const PUSH_TITLES: Record<NotificationType, string> = {
+  COMMENT: 'Nueva respuesta 💬',
+  MENTION: 'Te mencionaron @',
+  WALL: 'Nueva firma en tu muro ✍️',
+  REACTION: 'Nueva reacción ❤️',
+  FOLLOW: 'Nuevo seguidor ✨',
+};
+
 export async function notify(params: {
   userId: string;
   actorId?: string | null;
@@ -75,6 +85,21 @@ export async function notify(params: {
 
   // Real-time push via Socket.IO
   emitToUser(params.userId, 'notification_received', serializeNotification(notification));
+
+  // Push real (FCM) para reactivar usuarios fuera de la app.
+  const actorName = notification.actor?.displayName ?? 'Alguien';
+  await sendPushNotification({
+    userId: params.userId,
+    title: `${PUSH_TITLES[params.type] ?? 'Nueva notificación'} · ${actorName}`,
+    body: params.text?.slice(0, 180) ?? 'Tienes una nueva actividad en Kyubi.',
+    data: {
+      type: params.type.toLowerCase(),
+      targetType: params.target.type,
+      targetId: params.target.id ?? '',
+      actorId: params.actorId ?? '',
+    },
+    imageUrl: notification.actor?.avatarUrl ?? null,
+  });
 }
 
 const MENTION_RE = /@([a-zA-Z0-9_]{1,32})/g;

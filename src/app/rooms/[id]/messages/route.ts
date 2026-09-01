@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { requireSession } from '@/lib/auth';
 import { messageInclude, serializeMessage } from '@/lib/chat';
+import { sendPushNotification } from '@/lib/fcm';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { emitToConversation, emitToUser } from '@/lib/socketio';
@@ -140,6 +141,40 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   });
   for (const member of memberIds) {
     emitToUser(member.userId, 'message:new', serializeMessage(message));
+  }
+
+  // ── Push FCM para DMs ──
+  // Notifica a los miembros OFFLINE (socket inactivo / sala sin foco) y que
+  // no tienen la conversación silenciada. `emitToUser` sólo impacta si el
+  // socket está vivo; FCM cubre el resto de casos.
+  const offlineMembers = await prisma.conversationMember.findMany({
+    where: {
+      conversationId: id,
+      userId: { not: session.userId },
+      muted: false,
+      user: { isOnline: false },
+    },
+    select: { userId: true },
+  });
+  if (offlineMembers.length > 0) {
+    const senderName =
+      message.characterName ?? message.sender.displayName ?? message.sender.username;
+    for (const member of offlineMembers) {
+      await sendPushNotification({
+        userId: member.userId,
+        title: `${senderName} te escribió 💬`,
+        body: message.mediaUrl && !message.body
+          ? '📎 Te ha enviado un archivo'
+          : message.body.slice(0, 180),
+        data: {
+          type: 'message',
+          conversationId: id,
+          messageId: message.id,
+          senderId: message.senderId,
+        },
+        imageUrl: message.characterAvatarUrl ?? message.sender.avatarUrl ?? null,
+      });
+    }
   }
   return ok(serializeMessage(message), 201);
 });

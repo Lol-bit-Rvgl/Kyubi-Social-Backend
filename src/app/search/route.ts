@@ -13,6 +13,14 @@ import { prisma } from '@/lib/prisma';
 
 const SEARCH_CONFIG = 'spanish';
 
+/** Limpia la query: remueve #, comillas y caracteres especiales de plainto_tsquery. */
+function sanitizeQuery(raw: string): string {
+  return raw
+    .replace(/[#"'`]/g, '')       // caracteres problemáticos
+    .replace(/\s+/g, ' ')         // colapsa espacios múltiples
+    .trim();
+}
+
 interface RawPostRow {
   id: string;
   content: string;
@@ -65,6 +73,7 @@ export const GET = withErrorHandling(async (request: Request) => {
 
   const url = new URL(request.url);
   const q = url.searchParams.get('q')?.trim() ?? '';
+  const qClean = sanitizeQuery(q);
   const type = (url.searchParams.get('type') ?? 'all').toLowerCase();
   const requested = Number(url.searchParams.get('limit') ?? 20);
   const limit = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), 50) : 20;
@@ -80,11 +89,11 @@ export const GET = withErrorHandling(async (request: Request) => {
   const wantRooms = type === 'all' || type === 'rooms';
 
   const [posts, users, rooms] = await Promise.all([
-    wantPosts ? searchPosts(q, limit, offset) : Promise.resolve([] as RawPostRow[]),
+    wantPosts ? searchPosts(qClean, limit, offset) : Promise.resolve([] as RawPostRow[]),
     wantUsers
-      ? searchUsers(q, limit, offset, session.userId)
+      ? searchUsers(qClean, limit, offset, session.userId)
       : Promise.resolve([] as (RawUserRow & { isFollowing: boolean })[]),
-    wantRooms ? searchRooms(q, limit, offset) : Promise.resolve([] as RawRoomRow[]),
+    wantRooms ? searchRooms(qClean, limit, offset) : Promise.resolve([] as RawRoomRow[]),
   ]);
 
   return ok({

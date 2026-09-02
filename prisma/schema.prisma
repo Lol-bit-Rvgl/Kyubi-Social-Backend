@@ -120,6 +120,11 @@ enum NotificationType {
   WALL
 }
 
+enum StoryMediaType {
+  IMAGE
+  VIDEO
+}
+
 model User {
   id                  String              @id @default(cuid())
   email               String              @unique
@@ -179,6 +184,8 @@ model User {
   moderationActions   ModerationLog[]     @relation("ModeratorAction")
   reportsHandled      Report[]            @relation("ReportHandler")
   deviceTokens        DeviceToken[]
+  stories             Story[]
+  storyViews          StoryView[]
 }
 
 /// Token FCM de un dispositivo registrado para notificaciones push.
@@ -584,6 +591,35 @@ model RoomParticipant {
 
   @@unique([roomId, userId])
   @@index([userId])
+}
+
+/// Historia efímera de 24 horas (stories) asociada a un usuario.
+model Story {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaUrl  String
+  mediaType StoryMediaType @default(IMAGE)
+  caption   String?        @db.VarChar(500)
+  createdAt DateTime       @default(now())
+  expiresAt DateTime
+  views     StoryView[]
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+}
+
+/// Registro de visualización de una historia por un usuario.
+model StoryView {
+  id        String   @id @default(cuid())
+  storyId   String
+  viewerId  String
+  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  viewer    User     @relation(fields: [viewerId], references: [id], onDelete: Cascade)
+  viewedAt  DateTime @default(now())
+
+  @@unique([storyId, viewerId])
+  @@index([viewerId])
 }
 
 model Mute {

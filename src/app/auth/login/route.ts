@@ -10,7 +10,7 @@ const limiter = createRateLimiter({ windowMs: 15 * 60_000, max: 10 });
 
 export const POST = withErrorHandling(async (request: Request) => {
   const body = await request.json().catch(() => null);
-  console.log('[Login Request]', request.method, request.url, JSON.stringify(body));
+  // NO loguear el body: contiene credenciales (email + contraseña).
   if (!limiter(clientIp(request))) return fail('Demasiados intentos, inténtalo más tarde', 429);
 
   const parsed = input.safeParse(body);

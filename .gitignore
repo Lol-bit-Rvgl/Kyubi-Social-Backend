@@ -13,3 +13,7 @@ smoketest_server.log
 test_*.txt
 *.tsbuildinfo
 .turbo/
+
+token*.txt
+refresh_token*.txt
+*.txt

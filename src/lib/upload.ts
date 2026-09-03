@@ -16,6 +16,49 @@ const EXT_BY_MIME: Record<string, string> = {
   'video/quicktime': '.mov',
 };
 
+/** Límite de tamaño (bytes) por tipo de subida. */
+export const KIND_MAX_BYTES: Record<string, number> = {
+  avatar: 5 * 1024 * 1024,
+  banner: 5 * 1024 * 1024,
+  media: 50 * 1024 * 1024,
+  post: 50 * 1024 * 1024,
+  attachment: 50 * 1024 * 1024,
+};
+
+export const DEFAULT_MAX_BYTES = 50 * 1024 * 1024;
+
+/** Whitelist estricta de MIME aceptados. */
+export const ALLOWED_UPLOAD_MIMES: ReadonlySet<string> = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/avif',
+  'image/tiff',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/ogg',
+  'audio/wav',
+  'video/mp4',
+  'video/quicktime',
+]);
+
+/**
+ * Valida que un archivo cumpla la whitelist de MIME y el tope de tamaño de su
+ * `kind`. Devuelve un mensaje de error o `null` si es válido.
+ */
+export function validateUpload(file: File, kind: string): string | null {
+  const mime = (file.type || '').toLowerCase();
+  if (!ALLOWED_UPLOAD_MIMES.has(mime)) {
+    return 'Tipo de archivo no permitido';
+  }
+  const max = KIND_MAX_BYTES[(kind || '').toLowerCase()] ?? DEFAULT_MAX_BYTES;
+  if (file.size > max) {
+    return `El archivo supera el tamaño máximo permitido (${Math.round(max / 1024 / 1024)} MB)`;
+  }
+  return null;
+}
+
 /** MIME que se pueden optimizar con `sharp` (se convierten a WebP). */
 const IMAGE_MIMES = new Set([
   'image/jpeg',
@@ -84,6 +127,9 @@ async function optimizeImage(
  * lo decide `STORAGE_DRIVER`: S3-compatible (AWS/R2) o disco `uploads/`.
  */
 export async function saveUpload(file: File, kind = 'misc'): Promise<string> {
+  const validationError = validateUpload(file, kind);
+  if (validationError) throw new Error(`UPLOAD_REJECTED:${validationError}`);
+
   const storage = getStorage();
   const bytes = Buffer.from(await file.arrayBuffer());
   const mime = (file.type || '').toLowerCase();

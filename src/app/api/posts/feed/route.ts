@@ -11,17 +11,21 @@ export const GET = withErrorHandling(async (request: Request) => {
   const limit = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), 50) : 20;
   const cursor = searchParams.get('cursor');
 
-  const following = await prisma.follow.findMany({
-    where: { followerId: session.userId },
-    select: { followingId: true },
-  });
-  const followingIds = following.map((f) => f.followingId);
-
   const posts = await prisma.post.findMany({
     where: {
       OR: [
+        // Publicaciones públicas de cualquier usuario (feed abierto).
         { visibility: 'PUBLIC' },
-        { visibility: 'FOLLOWERS', authorId: { in: [session.userId, ...followingIds] } },
+        // Posts FOLLOWERS del propio usuario + de usuarios a los que sigue
+        // (subconsulta relacional directa, sin materializar follows en memoria).
+        {
+          visibility: 'FOLLOWERS',
+          OR: [
+            { authorId: session.userId },
+            { author: { followers: { some: { followerId: session.userId } } } },
+          ],
+        },
+        // Posts privados (solo el autor).
         { visibility: 'PRIVATE', authorId: session.userId },
       ],
     },

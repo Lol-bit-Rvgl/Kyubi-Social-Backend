@@ -68,7 +68,6 @@ describe('feed', () => {
 
   it('aplica límite por defecto y orden con desempate', async () => {
     const token = await tokenFor();
-    m.follow.findMany.mockResolvedValue([]);
     m.post.findMany.mockResolvedValue([]);
 
     const res = await feed(jsonRequest('http://localhost/api/posts/feed', { token }));
@@ -83,7 +82,6 @@ describe('feed', () => {
 
   it('no revienta con limit no numérico (NaN)', async () => {
     const token = await tokenFor();
-    m.follow.findMany.mockResolvedValue([]);
     m.post.findMany.mockResolvedValue([]);
 
     const res = await feed(jsonRequest('http://localhost/api/posts/feed?limit=abc', { token }));
@@ -91,20 +89,29 @@ describe('feed', () => {
     expect(m.post.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 21 }));
   });
 
-  it('incluye FOLLOWERS de los usuarios seguidos y excluye PRIVATE ajenos', async () => {
+  it('incluye FOLLOWERS vía subconsulta relacional sin materializar follows', async () => {
     const token = await tokenFor();
-    m.follow.findMany.mockResolvedValue([{ id: 'f1', followerId: 'user-1', followingId: 'user-2' }]);
     m.post.findMany.mockResolvedValue([]);
 
     await feed(jsonRequest('http://localhost/api/posts/feed', { token }));
+
+    // Ya no se traen los follows a memoria con un findMany previo.
+    expect(m.follow.findMany).not.toHaveBeenCalled();
+
     const where = m.post.findMany.mock.calls[0][0].where;
-    expect(where.OR[1]).toEqual({ visibility: 'FOLLOWERS', authorId: { in: ['user-1', 'user-2'] } });
+    expect(where.OR[0]).toEqual({ visibility: 'PUBLIC' });
+    expect(where.OR[1]).toEqual({
+      visibility: 'FOLLOWERS',
+      OR: [
+        { authorId: 'user-1' },
+        { author: { followers: { some: { followerId: 'user-1' } } } },
+      ],
+    });
     expect(where.OR[2]).toEqual({ visibility: 'PRIVATE', authorId: 'user-1' });
   });
 
   it('incluye myReaction y nextCursor', async () => {
     const token = await tokenFor();
-    m.follow.findMany.mockResolvedValue([]);
     m.post.findMany.mockResolvedValue([{ ...basePost(), author, _count: { reactions: 1 }, reactions: [{ type: 'LOVE' }] }]);
 
     const res = await feed(jsonRequest('http://localhost/api/posts/feed', { token }));

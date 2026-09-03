@@ -44,31 +44,21 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
     }
   }
 
+  // Cursor a cargo de la paginación: consultamos limit+1 para determinar hasMore
+  // sin ejecutar un count() costoso en cada petición.
   const messages = await prisma.message.findMany({
     where,
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: limit,
+    take: limit + 1,
     include: messageInclude,
   });
 
-  const oldest = messages.length > 0 ? messages[messages.length - 1] : null;
-  let hasMore = false;
-  if (oldest && !after) {
-    hasMore = (await prisma.message.count({
-      where: {
-        conversationId: id,
-        OR: [
-          { createdAt: { lt: oldest.createdAt } },
-          { createdAt: oldest.createdAt, id: { lt: oldest.id } },
-        ],
-      },
-    })) > 0;
-  }
+  const hasMore = messages.length > limit;
+  const pageMessages = hasMore ? messages.slice(0, limit) : messages;
 
   return ok({
-    data: messages.map(serializeMessage),
+    data: pageMessages.map(serializeMessage),
     hasMore,
-    total: await prisma.message.count({ where: { conversationId: id } }),
   });
 });
 

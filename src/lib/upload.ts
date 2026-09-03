@@ -43,12 +43,44 @@ export const ALLOWED_UPLOAD_MIMES: ReadonlySet<string> = new Set([
   'video/quicktime',
 ]);
 
+/** Mapea extensiones a MIME (fallback cuando el cliente no envía content-type). */
+const EXT_MIME: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.avif': 'image/avif',
+  '.tiff': 'image/tiff',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.m4a': 'audio/mp4',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.wav': 'audio/wav',
+};
+
+/**
+ * Resuelve el MIME de un archivo: prefiere `file.type` (content-type enviado por
+ * el cliente) y, si está vacío, lo infiere de la extensión del `filename`.
+ *
+ * Esto es esencial para que subir imágenes desde móviles que no envían
+ * `Content-Type` del multipart parte (p.ej. avatar/banner/story) no sea
+ * rechazado por la whitelist.
+ */
+export function resolveMime(file: File): string {
+  const fromType = (file.type || '').toLowerCase();
+  if (fromType && ALLOWED_UPLOAD_MIMES.has(fromType)) return fromType;
+  const ext = path.extname(file.name || '').toLowerCase();
+  return EXT_MIME[ext] ?? fromType;
+}
+
 /**
  * Valida que un archivo cumpla la whitelist de MIME y el tope de tamaño de su
  * `kind`. Devuelve un mensaje de error o `null` si es válido.
  */
 export function validateUpload(file: File, kind: string): string | null {
-  const mime = (file.type || '').toLowerCase();
+  const mime = resolveMime(file);
   if (!ALLOWED_UPLOAD_MIMES.has(mime)) {
     return 'Tipo de archivo no permitido';
   }
@@ -132,7 +164,7 @@ export async function saveUpload(file: File, kind = 'misc'): Promise<string> {
 
   const storage = getStorage();
   const bytes = Buffer.from(await file.arrayBuffer());
-  const mime = (file.type || '').toLowerCase();
+  const mime = resolveMime(file);
 
   let body: Uint8Array = bytes;
   let contentType = mime || 'application/octet-stream';

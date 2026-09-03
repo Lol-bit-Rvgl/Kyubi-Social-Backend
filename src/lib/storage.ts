@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
@@ -54,9 +55,14 @@ function resolveConfig(): ResolvedConfig {
   return {
     driver,
     bucket: process.env.S3_BUCKET || '',
-    region: process.env.S3_REGION || 'auto',
+    // IMPORTANTE: para Supabase Storage hospedado el `S3_REGION` debe ser la
+    // región del proyecto (ej. us-west-2). `auto` es una convención de R2 y
+    // NO es válida para firmar (causa SignatureDoesNotMatch 403).
+    region: process.env.S3_REGION || 'us-east-1',
     endpoint: process.env.S3_ENDPOINT || undefined,
-    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
+    // `forcePathStyle` debe ser true estricto para Supabase/MinIO/R2 (bucket en
+    // el path, no como subdominio). Default true salvo que se deshabilite con 'false'.
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
     // La base pública depende del driver: S3_PUBLIC_URL sólo aplica a S3/R2;
     // en modo local se usa APP_URL (dominio que sirve public/uploads).
     publicBase:
@@ -80,10 +86,17 @@ function s3Engine(cfg: ResolvedConfig): StorageEngine {
   return {
     driver: 's3',
     async put(key, body, contentType) {
+      // Normaliza la key para evitar firmas inválidas en Supabase: sin slash
+      // inicial ni bucket repetido (`/uploads/avatars/x` o `avatars/...`).
+      let clean = key.replace(/^\/+/, '').replace(/\/+$/, '');
+      if (cfg.bucket) {
+        clean = clean.replace(new RegExp(`^${cfg.bucket}\/+`, 'i'), '');
+      }
+      if (!clean) clean = `misc/${randomUUID()}`;
       await client.send(
         new PutObjectCommand({
           Bucket: cfg.bucket,
-          Key: key,
+          Key: clean,
           Body: body,
           ContentType: contentType,
         }),
@@ -119,6 +132,16 @@ let cached: StorageEngine | null = null;
 export function getStorage(): StorageEngine {
   if (cached) return cached;
   const cfg = resolveConfig();
+  if (cfg.driver === 'local' && process.env.NODE_ENV === 'production') {
+    // En hosts con disco efímero (Render, Heroku, etc.) las subidas se pierden
+    // tras cada redeploy y las URLs guardadas quedan rotas (404) en la app.
+    console.warn(
+      '[storage] ADVERTENCIA: STORAGE_DRIVER=local en producción. ' +
+        'Las imágenes se guardan en disco efímero y se perderán con cada redeploy. ' +
+        'Configura almacenamiento persistente (S3 / Supabase Storage): ' +
+        'S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY, S3_ENDPOINT, S3_PUBLIC_URL.',
+    );
+  }
   cached = cfg.driver === 's3' ? s3Engine(cfg) : localEngine(cfg);
   return cached;
 }

@@ -74,7 +74,8 @@ export async function rotateRefreshToken(refreshToken: string) {
   });
   if (!record || record.expiresAt < new Date()) return null;
 
-  if (record.revokedAt) {
+  const banned = await getActiveBan(record.userId);
+  if (banned) {
     await prisma.refreshToken.updateMany({
       where: { userId: record.userId, revokedAt: null },
       data: { revokedAt: new Date() },
@@ -82,19 +83,22 @@ export async function rotateRefreshToken(refreshToken: string) {
     return null;
   }
 
-  const ban = await getActiveBan(record.userId);
-  if (ban) {
-    await prisma.refreshToken.updateMany({
-      where: { userId: record.userId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
-    return null;
-  }
-
-  await prisma.refreshToken.update({
-    where: { id: record.id },
+  // Reclamo atómico: solo una de las peticiones concurrentes puede marcar el
+  // token como revocado. Si count === 0 el token ya fue consumido por otra
+  // petición (o revocado antes): posible robo de sesión → revocamos la familia.
+  const claimed = await prisma.refreshToken.updateMany({
+    where: { id: record.id, revokedAt: null },
     data: { revokedAt: new Date() },
   });
+
+  if (claimed.count === 0) {
+    await prisma.refreshToken.updateMany({
+      where: { userId: record.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return null;
+  }
+
   return issueTokenPair(record.user);
 }
 

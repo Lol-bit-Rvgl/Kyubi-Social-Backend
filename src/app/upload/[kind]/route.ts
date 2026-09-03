@@ -1,4 +1,4 @@
-import { requireSession } from '@/lib/auth';
+import { assertCanCreateContent } from '@/lib/authz';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { createRateLimiter } from '@/lib/rate-limit';
 import { saveUpload, validateUpload } from '@/lib/upload';
@@ -6,8 +6,9 @@ import { saveUpload, validateUpload } from '@/lib/upload';
 const limiter = createRateLimiter({ windowMs: 60_000, max: 20 });
 
 export const POST = withErrorHandling(async (request: Request, { params }: { params: Promise<{ kind: string }> }) => {
-  const session = await requireSession(request);
-  if (!session) return fail('No autorizado', 401);
+  // Bloquea usuarios baneados/silenciados: no solo dependemos del JWT (15 min).
+  const session = await assertCanCreateContent(request);
+  if (session instanceof Response) return session;
   if (!limiter(`upload:${session.userId}`)) {
     return fail('Demasiadas subidas, inténtalo más tarde', 429);
   }

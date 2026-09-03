@@ -142,7 +142,8 @@ describe('refresh / logout / email', () => {
 
   it('refresh rota el token', async () => {
     m.refreshToken.findUnique.mockResolvedValue({ id: 'rt1', tokenHash: 'h', userId: 'user-1', revokedAt: null, expiresAt: new Date(Date.now() + 60_000), user: baseUser() });
-    m.refreshToken.update.mockResolvedValue({});
+    // Reclamo atómico: updateMany marca el token como revocado (count 1 = lo ganó esta petición).
+    m.refreshToken.updateMany.mockResolvedValue({ count: 1 });
     m.refreshToken.create.mockResolvedValue({ id: 'rt2' });
     const res = await refresh(jsonRequest('http://localhost/auth/refresh', { method: 'POST', body: { refreshToken: 'token' }, ip: '10.0.2.1' }));
     expect(res.status).toBe(200);
@@ -150,7 +151,9 @@ describe('refresh / logout / email', () => {
 
   it('refresh 401 si el token está revocado', async () => {
     m.refreshToken.findUnique.mockResolvedValue({ id: 'rt1', tokenHash: 'h', userId: 'user-1', revokedAt: new Date(), expiresAt: new Date(Date.now() + 60_000), user: baseUser() });
-    m.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+    // count 0 => el token ya fue consumido/revocado (o una petición concurrente lo
+    // ganó) => se revoca la familia completa y se rechaza la rotación.
+    m.refreshToken.updateMany.mockResolvedValue({ count: 0 });
     const res = await refresh(jsonRequest('http://localhost/auth/refresh', { method: 'POST', body: { refreshToken: 'stolen' }, ip: '10.0.2.2' }));
     expect(res.status).toBe(401);
     expect(m.refreshToken.updateMany).toHaveBeenCalled(); // revoca la familia

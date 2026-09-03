@@ -3,13 +3,20 @@ import { messageInclude, serializeMessage } from '@/lib/chat';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 
-export const GET = withErrorHandling(async (request: Request, { params }: { params: Promise<{ conversationId: string }> }) => {
+/**
+ * GET /rooms/[id]/messages/search?q=...
+ *
+ * Búsqueda de mensajes dentro de una sala/conversación. Reemplaza a la
+ * ruta huérfana `/chats/[conversationId]/search` (el dominio `/chats`
+ * fue eliminado de la API; toda la mensajería vive bajo `/rooms`).
+ */
+export const GET = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireSession(request);
   if (!session) return fail('No autorizado', 401);
-  const { conversationId } = await params;
+  const { id } = await params;
 
   const membership = await prisma.conversationMember.findUnique({
-    where: { conversationId_userId: { conversationId, userId: session.userId } },
+    where: { conversationId_userId: { conversationId: id, userId: session.userId } },
     select: { id: true },
   });
   if (!membership) return fail('No autorizado', 403);
@@ -20,7 +27,7 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
 
   const messages = await prisma.message.findMany({
     where: {
-      conversationId,
+      conversationId: id,
       body: { contains: q, mode: 'insensitive' },
     },
     orderBy: { createdAt: 'desc' },

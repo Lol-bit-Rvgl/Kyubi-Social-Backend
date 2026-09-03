@@ -74,6 +74,22 @@ function removeFromMatchQueue(userId) {
   }
 }
 
+// Limpieza periódica de entradas colgadas: si un socket murió sin emitir
+// `disconnect`, su entrada en la cola se elimina para evitar matches fantasma.
+const MATCH_SWEEP_INTERVAL_MS = 15000;
+function sweepMatchQueue() {
+  for (const [category, waiters] of matchQueue) {
+    for (const [userId, entry] of waiters) {
+      if (!entry.socket || !entry.socket.connected) {
+        clearTimeout(entry.timer);
+        waiters.delete(userId);
+      }
+    }
+    if (waiters.size === 0) matchQueue.delete(category);
+  }
+}
+setInterval(sweepMatchQueue, MATCH_SWEEP_INTERVAL_MS).unref();
+
 async function matchPrisma() {
   if (!globalThis.__kyubiMatchPrisma) {
     const { PrismaClient } = await import('@prisma/client');
@@ -204,8 +220,12 @@ io.on('connection', (socket) => {
     removeFromMatchQueue(myId);
 
     let waiters = matchQueue.get(category);
+    // Solo empareja con otro usuario (nunca consigo mismo, aunque tenga
+    // varias pestañas abiertas) cuyo socket siga vivo.
     const opponent = waiters
-      ? [...waiters.entries()].find(([id]) => id !== myId)
+      ? [...waiters.entries()].find(
+          ([id, entry]) => id !== myId && entry.socket && entry.socket.connected,
+        )
       : undefined;
 
     if (opponent) {

@@ -46,6 +46,5 @@ export const config = {
     '/messages/:path*',
     '/notifications/:path*',
     '/rooms/:path*',
-    '/chats/:path*',
   ],
 };

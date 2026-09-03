@@ -186,6 +186,7 @@ model User {
   deviceTokens        DeviceToken[]
   stories             Story[]
   storyViews          StoryView[]
+  bookmarks           Bookmark[]
 }
 
 /// Token FCM de un dispositivo registrado para notificaciones push.
@@ -276,11 +277,26 @@ model Post {
   updatedAt      DateTime       @updatedAt
   reactions      Reaction[]
   comments       Comment[]
+  bookmarks      Bookmark[]
   circleId       String?
   circle         Circle?        @relation(fields: [circleId], references: [id], onDelete: Cascade)
 
   @@index([createdAt])
   @@index([authorId, createdAt])
+}
+
+model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([userId])
+  @@index([postId])
 }
 
 model Reaction {

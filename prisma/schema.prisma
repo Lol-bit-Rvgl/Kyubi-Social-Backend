@@ -187,6 +187,7 @@ model User {
   stories             Story[]
   storyViews          StoryView[]
   bookmarks           Bookmark[]
+  assignedRoleSlots   RoleSlot[]
 }
 
 /// Token FCM de un dispositivo registrado para notificaciones push.
@@ -278,6 +279,7 @@ model Post {
   reactions      Reaction[]
   comments       Comment[]
   bookmarks      Bookmark[]
+  roleSlots      RoleSlot[]
   circleId       String?
   circle         Circle?        @relation(fields: [circleId], references: [id], onDelete: Cascade)
 
@@ -297,6 +299,28 @@ model Bookmark {
   @@unique([userId, postId])
   @@index([userId])
   @@index([postId])
+}
+
+/// Vacante de rol en una publicación de roleplay. Un slot puede estar abierto
+/// (buscando intérprete) o asignado a un usuario/OC concreto.
+model RoleSlot {
+  id                 String     @id @default(cuid())
+  postId             String
+  title              String     @db.VarChar(120)
+  description        String?    @db.VarChar(2000)
+  requirements       String?    @db.VarChar(1000)
+  isOpen             Boolean    @default(true)
+  assignedCharacterId String?
+  assignedUserId     String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  post              Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  assignedCharacter Character? @relation(fields: [assignedCharacterId], references: [id], onDelete: SetNull)
+  assignedUser      User?      @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+
+  @@index([postId])
+  @@index([assignedUserId])
 }
 
 model Reaction {
@@ -591,6 +615,7 @@ model Character {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleSlots RoleSlot[]
 
   @@index([userId, createdAt])
 }

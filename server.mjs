@@ -22,10 +22,36 @@ const dev = process.env.NODE_ENV !== 'production';
 const port = parseInt(process.env.PORT || '3000', 10);
 const hostname = '0.0.0.0';
 
+// ── CORS estricto ─────────────────────────────────────────────────────────────
+// Producción: exige CORS_ORIGINS explícito y valida contra él (sin comodín `*`).
+// Desarrollo: permite localhost y orígenes locales además de CORS_ORIGINS.
+const configuredOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+function resolveAllowedOrigins() {
+  if (!dev) {
+    return configuredOrigins.length ? configuredOrigins : [];
+  }
+  const local = ['http://localhost', 'http://localhost:3000', 'http://localhost:8080'];
+  return Array.from(new Set([...local, ...configuredOrigins]));
+}
+const allowedOrigins = resolveAllowedOrigins();
+
+function originIsAllowed(origin) {
+  if (!origin) return true; // peticiones no-CORS (mismo servidor, curl, ...)
+  return allowedOrigins.includes(origin);
+}
+
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || '');
+const rawSecret = process.env.JWT_SECRET;
+if (!rawSecret || rawSecret.trim().length < 32) {
+  throw new Error('FATAL: JWT_SECRET environment variable is missing or too short.');
+}
+const secret = new TextEncoder().encode(rawSecret);
 
 try {
   await app.prepare();
@@ -48,7 +74,10 @@ const server = createServer((req, res) => {
 
 const io = new SocketIOServer(server, {
   cors: {
-    origin: (process.env.CORS_ORIGINS || '*').split(',').map((o) => o.trim()).filter(Boolean),
+    origin: (origin, callback) => {
+      if (originIsAllowed(origin)) callback(null, true);
+      else callback(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST'],
     credentials: true,
   },

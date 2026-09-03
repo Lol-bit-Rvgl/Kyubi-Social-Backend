@@ -7,3 +7,9 @@ build/
 npm-debug.log*
 .npm-cache/
 *.log
+dev_server.log
+fase3_server.log
+smoketest_server.log
+test_*.txt
+*.tsbuildinfo
+.turbo/

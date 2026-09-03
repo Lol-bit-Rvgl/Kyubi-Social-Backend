@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS ?? '*')
+const configuredOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean);
-const allowAll = ALLOWED_ORIGINS.includes('*');
+
+// En desarrollo se permiten también orígenes locales; en producción solo se
+// validan contra CORS_ORIGINS explicitado (nunca se abre a `*` por defecto).
+const dev = process.env.NODE_ENV !== 'production';
+const localOrigins = ['http://localhost', 'http://localhost:3000', 'http://localhost:8080'];
+const ALLOWED_ORIGINS = Array.from(
+  new Set([...(dev ? localOrigins : []), ...configuredOrigins]),
+);
 
 function setCorsHeaders(response: NextResponse, origin: string) {
-  if (allowAll) {
-    response.headers.set('Access-Control-Allow-Origin', '*');
-  } else if (ALLOWED_ORIGINS.includes(origin)) {
+  if (ALLOWED_ORIGINS.includes(origin)) {
     response.headers.set('Access-Control-Allow-Origin', origin);
     response.headers.set('Vary', 'Origin');
   }

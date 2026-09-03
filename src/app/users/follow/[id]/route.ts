@@ -1,7 +1,7 @@
+import { FollowRequestStatus } from '@prisma/client';
 import { requireSession } from '@/lib/auth';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
-import { notify } from '@/lib/notifications';
 
 export const POST = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireSession(request);
@@ -12,20 +12,21 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   const target = await prisma.user.findUnique({ where: { id }, select: { id: true } });
   if (!target) return fail('Usuario no encontrado', 404);
 
-  await prisma.follow.upsert({
+  const existing = await prisma.follow.findUnique({
     where: { followerId_followingId: { followerId: session.userId, followingId: id } },
-    create: { followerId: session.userId, followingId: id },
-    update: {},
+    select: { id: true },
   });
+  if (existing) {
+    return ok({ isFollowing: true, pendingFollow: false });
+  }
 
-  await notify({
-    userId: id,
-    actorId: session.userId,
-    type: 'FOLLOW',
-    target: { type: 'USER', id: session.userId },
+  await prisma.followRequest.upsert({
+    where: { requesterId_targetId: { requesterId: session.userId, targetId: id } },
+    create: { requesterId: session.userId, targetId: id, status: FollowRequestStatus.PENDING },
+    update: { status: FollowRequestStatus.PENDING, respondedAt: null },
   });
 
   const followersCount = await prisma.follow.count({ where: { followingId: id } });
   const followingCount = await prisma.follow.count({ where: { followerId: session.userId } });
-  return ok({ isFollowing: true, followersCount, followingCount });
+  return ok({ isFollowing: false, pendingFollow: true, followersCount, followingCount });
 });

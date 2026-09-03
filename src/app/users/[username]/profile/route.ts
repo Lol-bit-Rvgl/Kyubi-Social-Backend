@@ -3,6 +3,7 @@ import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { serializeUser } from '@/lib/serialize';
 import { findUserByIdOrUsername } from '@/lib/users';
+import { FollowRequestStatus } from '@prisma/client';
 
 export const GET = withErrorHandling(async (request: Request, { params }: { params: Promise<{ username: string }> }) => {
   const session = await requireSession(request);
@@ -27,5 +28,10 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
     where: { followerId_followingId: { followerId: session.userId, followingId: user.id } },
     select: { id: true },
   });
-  return ok(serializeUser(user, { isFollowing: !!isFollowing }));
+  const pendingFollow = !isFollowing &&
+    (await prisma.followRequest.findFirst({
+      where: { requesterId: session.userId, targetId: user.id, status: FollowRequestStatus.PENDING },
+      select: { id: true },
+    })) !== null;
+  return ok(serializeUser(user, { isFollowing: !!isFollowing, pendingFollow }));
 });

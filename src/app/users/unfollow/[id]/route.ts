@@ -10,7 +10,10 @@ export const DELETE = withErrorHandling(async (request: Request, { params }: { p
   await prisma.follow.deleteMany({
     where: { followerId: session.userId, followingId: id },
   });
+  await prisma.followRequest.deleteMany({
+    where: { requesterId: session.userId, targetId: id },
+  });
   const followersCount = await prisma.follow.count({ where: { followingId: id } });
   const followingCount = await prisma.follow.count({ where: { followerId: session.userId } });
-  return ok({ isFollowing: false, followersCount, followingCount });
+  return ok({ isFollowing: false, pendingFollow: false, followersCount, followingCount });
 });

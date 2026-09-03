@@ -244,7 +244,7 @@ export type PublicUser = {
   _count?: { followers?: number; following?: number; posts?: number } | null;
 };
 
-export function serializeUser(user: PublicUser, opts: { isFollowing?: boolean; isMe?: boolean } = {}) {
+export function serializeUser(user: PublicUser, opts: { isFollowing?: boolean; isMe?: boolean; pendingFollow?: boolean } = {}) {
   const followers = user._count?.followers ?? 0;
   const following = user._count?.following ?? 0;
   return {
@@ -265,6 +265,7 @@ export function serializeUser(user: PublicUser, opts: { isFollowing?: boolean; i
     onboardingCompleted: opts.isMe ? (user.onboardingCompleted ?? false) : undefined,
     createdAt: toIso(user.createdAt),
     isFollowing: opts.isFollowing ?? false,
+    pendingFollow: opts.pendingFollow ?? false,
     followersCount: followers,
     followingCount: following,
     hasPaymentPassword: opts.isMe ? false : undefined,

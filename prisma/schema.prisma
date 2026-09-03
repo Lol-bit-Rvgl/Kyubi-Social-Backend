@@ -125,6 +125,13 @@ enum StoryMediaType {
   VIDEO
 }
 
+/// Estado de una solicitud de seguimiento (follow con aprobación).
+enum FollowRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 model User {
   id                  String              @id @default(cuid())
   email               String              @unique
@@ -188,6 +195,8 @@ model User {
   storyViews          StoryView[]
   bookmarks           Bookmark[]
   assignedRoleSlots   RoleSlot[]
+  followRequestsMade   FollowRequest[] @relation("FollowRequestsMade")
+  followRequestsReceived FollowRequest[] @relation("FollowRequestsReceived")
 }
 
 /// Token FCM de un dispositivo registrado para notificaciones push.
@@ -223,6 +232,23 @@ model Follow {
 
   @@unique([followerId, followingId])
   @@index([followingId])
+}
+
+/// Solicitud de seguimiento pendiente de aprobación (follow con aprobación).
+model FollowRequest {
+  id         String              @id @default(cuid())
+  requesterId String
+  targetId   String
+  status     FollowRequestStatus @default(PENDING)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  respondedAt DateTime?
+  requester  User                @relation("FollowRequestsMade", fields: [requesterId], references: [id], onDelete: Cascade)
+  target     User                @relation("FollowRequestsReceived", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, targetId])
+  @@index([targetId, status])
+  @@index([requesterId])
 }
 
 model VerificationToken {

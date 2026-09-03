@@ -115,6 +115,42 @@ export async function cleanupExpiredRefreshTokens() {
   });
 }
 
-export function clientIp(request: Request) {
-  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+/**
+ * Headers de IP que sólo debe escribir un proxy/balanceador de confianza.
+ * Se priorizan en este orden: Cloudflare (`cf-connecting-ip`) > `x-real-ip` >
+ * el primer hop de `x-forwarded-for`.
+ *
+ * `clientIp` NO debe usarse para autorización; su misión es exclusivamente
+ * rate-limiting. Si la IP es inaccesible, se devuelve un bucket defensivo
+ * derivado del User-Agent para evitar que todas las peticiones sin IP compitan
+ * por un único balde de rate limit.
+ */
+const IP_HEADERS: ReadonlyArray<string> = [
+  'cf-connecting-ip',
+  'x-real-ip',
+  'x-forwarded-for',
+];
+
+export function clientIp(request: Request): string {
+  for (const header of IP_HEADERS) {
+    const raw = request.headers.get(header);
+    if (!raw) continue;
+    const value =
+      header === 'x-forwarded-for'
+        ? raw.split(',')[0]?.trim()
+        : raw.trim();
+    if (value && value.toLowerCase() !== 'unknown' && value !== '0.0.0.0') {
+      return value;
+    }
+  }
+  // Sin headers de proxy confiables: bucket defensivo derivado del agente/idioma
+  // para evitar que todas las peticiones sin IP compitan por un único balde de
+  // rate limit (antes caían todas en 'unknown').
+  const fingerprint = [
+    request.headers.get('user-agent'),
+    request.headers.get('accept-language'),
+    request.headers.get('accept-encoding'),
+  ].filter((v) => v);
+  if (fingerprint.length) return `proxy:${sha256Hex(fingerprint.join('|'))}`;
+  return 'unknown';
 }

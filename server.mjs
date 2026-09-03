@@ -60,9 +60,43 @@ try {
   process.exit(1);
 }
 
-const server = createServer((req, res) => {
+const server = createServer(async (req, res) => {
+  // ───────────────────────────────────────────────────────────────────────────
+  // CORS HTTP real (hasta ahora `originIsAllowed` solo se usaba en el
+  // handshake de Socket.IO, dejando la API HTTP sin control de origen).
+  // ───────────────────────────────────────────────────────────────────────────
+  const origin = req.headers.origin;
+  const allowed = Boolean(origin) && allowedOrigins.includes(origin);
+
+  if (allowed) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+  }
+
+  // Pre-flight: se responde aquí mismo, sin delegar a Next.js.
+  if (req.method === 'OPTIONS') {
+    res.setHeader(
+      'Access-Control-Allow-Methods',
+      'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+    );
+    const reqHeaders = req.headers['access-control-request-headers'];
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      typeof reqHeaders === 'string'
+        ? reqHeaders
+        : Array.isArray(reqHeaders)
+          ? reqHeaders.join(', ')
+          : 'Content-Type, Authorization',
+    );
+    res.setHeader('Access-Control-Max-Age', '86400');
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
   try {
-    handle(req, res);
+    await handle(req, res);
   } catch (err) {
     console.error('[server] request handler error:', err);
     if (!res.headersSent) {

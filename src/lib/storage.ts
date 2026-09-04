@@ -1,20 +1,23 @@
 import { randomUUID } from 'crypto';
 import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 /**
  * Almacenamiento de objetos de Kyubi.
  *
- * Soporta dos drivers:
- *  - `s3`:   Cliente compatible con S3 (AWS S3, Cloudflare R2 vía `S3_ENDPOINT`).
- *  - `local`: Escritura en disco (`uploads/`) como respaldo de desarrollo/offline.
+ * Soporta tres drivers:
+ *  - `supabase`: Supabase Storage vía @supabase/supabase-js (recomendado).
+ *  - `s3`:       Cliente compatible con S3 (AWS S3, Cloudflare R2 vía `S3_ENDPOINT`).
+ *  - `local`:    Escritura en disco (`uploads/`) como respaldo de desarrollo/offline.
  *
- * El driver se elige con `STORAGE_DRIVER`; si no se indica, se usa `s3` cuando
- * existen credenciales S3 y `local` en caso contrario (tests / dev sin servicio).
+ * El driver se elige con `STORAGE_DRIVER`; si no se indica, se usa `supabase`
+ * cuando existen credenciales Supabase, luego `s3` si hay credenciales S3 y
+ * `local` en caso contrario (tests / dev sin servicio).
  */
 
-export type StorageDriver = 's3' | 'local';
+export type StorageDriver = 'supabase' | 's3' | 'local';
 
 export interface StorageEngine {
   readonly driver: StorageDriver;
@@ -41,16 +44,26 @@ function isS3Configured(): boolean {
   );
 }
 
+function isSupabaseConfigured(): boolean {
+  return Boolean(
+    process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY,
+  );
+}
+
 function resolveConfig(): ResolvedConfig {
   const explicit = (process.env.STORAGE_DRIVER || '').toLowerCase();
   const driver: StorageDriver =
-    explicit === 's3'
-      ? 's3'
-      : explicit === 'local'
-        ? 'local'
-        : isS3Configured()
-          ? 's3'
-          : 'local';
+    explicit === 'supabase'
+      ? 'supabase'
+      : explicit === 's3'
+        ? 's3'
+        : explicit === 'local'
+          ? 'local'
+          : isSupabaseConfigured()
+            ? 'supabase'
+            : isS3Configured()
+              ? 's3'
+              : 'local';
 
   return {
     driver,
@@ -131,6 +144,53 @@ function localEngine(cfg: ResolvedConfig): StorageEngine {
   };
 }
 
+/**
+ * Driver de Supabase Storage usando la API nativa (@supabase/supabase-js).
+ *
+ * Es la vía más estable para Supabase en producción: evita los problemas de
+ * firma SigV4 del gateway S3-compatible (SignatureDoesNotMatch 403).
+ *
+ * Requiere `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` (o `SUPABASE_SERVICE_KEY`).
+ */
+function supabaseEngine(): StorageEngine {
+  const url =
+    process.env.SUPABASE_URL ||
+    `https://${process.env.SUPABASE_PROJECT_REF}.supabase.co`;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_KEY ||
+    '';
+  const bucket =
+    process.env.SUPABASE_BUCKET || process.env.S3_BUCKET || 'uploads';
+
+  const client: SupabaseClient = createClient(url, key, {
+    auth: { persistSession: false },
+  });
+
+  return {
+    driver: 'supabase',
+    async put(keyName, body, contentType) {
+      const cleanKey = keyName.replace(/^\/+/, '').replace(/\/+$/, '');
+      const uploadPath = cleanKey || `misc/${randomUUID()}`;
+      const { error } = await client.storage
+        .from(bucket)
+        .upload(uploadPath, body, {
+          contentType: contentType || 'application/octet-stream',
+          upsert: true,
+        });
+      if (error) {
+        console.error('[SUPABASE_STORAGE_ERROR]:', error);
+        throw error;
+      }
+    },
+    publicUrl(key) {
+      const cleanKey = key.replace(/^\/+/, '').replace(/\/+$/, '');
+      const { data } = client.storage.from(bucket).getPublicUrl(cleanKey);
+      return data.publicUrl;
+    },
+  };
+}
+
 let cached: StorageEngine | null = null;
 
 /** Devuelve la instancia de almacenamiento activa (memoizada). */
@@ -143,11 +203,13 @@ export function getStorage(): StorageEngine {
     console.warn(
       '[storage] ADVERTENCIA: STORAGE_DRIVER=local en producción. ' +
         'Las imágenes se guardan en disco efímero y se perderán con cada redeploy. ' +
-        'Configura almacenamiento persistente (S3 / Supabase Storage): ' +
-        'S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY, S3_ENDPOINT, S3_PUBLIC_URL.',
+        'Configura almacenamiento persistente (Supabase Storage): ' +
+        'SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.',
     );
   }
-  cached = cfg.driver === 's3' ? s3Engine(cfg) : localEngine(cfg);
+  if (cfg.driver === 'supabase') cached = supabaseEngine();
+  else if (cfg.driver === 's3') cached = s3Engine(cfg);
+  else cached = localEngine(cfg);
   return cached;
 }
 

@@ -81,6 +81,11 @@ function s3Engine(cfg: ResolvedConfig): StorageEngine {
       accessKeyId: process.env.S3_ACCESS_KEY || '',
       secretAccessKey: process.env.S3_SECRET_KEY || '',
     },
+    // Desactivar el cálculo/validación automática de checksum: en Supabase
+    // Storage esas cabeceras alteran la firma SigV4 y provocan
+    // `SignatureDoesNotMatch` (403).
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
   });
 
   return {

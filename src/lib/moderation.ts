@@ -62,6 +62,7 @@ export const moderationLogInclude = {
 export const reportDetailInclude = {
   reporter: { select: moderationActorSelect },
   handledBy: { select: moderationActorSelect },
+  reportedUser: { select: moderationActorSelect },
 } satisfies Prisma.ReportInclude;
 
 export type MuteWithRelations = Prisma.MuteGetPayload<{ include: typeof muteInclude }>;
@@ -123,13 +124,22 @@ export function serializeModerationLog(log: ModerationLogWithRelations) {
     action: log.action,
     targetType: log.targetType,
     targetId: log.targetId,
+    targetUserId: (log as { targetUserId?: string | null }).targetUserId ?? null,
+    targetPostId: (log as { targetPostId?: string | null }).targetPostId ?? null,
     reason: log.reason,
     metadata: log.metadata ?? null,
     createdAt: toIso(log.createdAt)!,
   };
 }
 
-export function serializeReportDetail(report: ReportWithRelations) {
+export function serializeReportDetail(
+  report: ReportWithRelations,
+  post?: { id: string; content: string | null; author: Parameters<typeof serializeActor>[0] } | null
+) {
+  const reportedUser = (report as { reportedUser?: unknown })
+    .reportedUser as ReportWithRelations['reporter'] | null;
+  // Si el denunciado no está poblado, usar el autor del post denunciado.
+  const infractor = reportedUser ?? post?.author ?? null;
   return {
     id: report.id,
     reporterId: report.reporterId,
@@ -138,9 +148,14 @@ export function serializeReportDetail(report: ReportWithRelations) {
     details: report.details,
     targetType: report.targetType,
     targetId: report.targetId,
+    // Datos del contenido denunciado (si aplica).
+    postId: post?.id ?? (report.targetType === 'POST' ? report.targetId : null),
+    postExcerpt: post?.content ? post.content.slice(0, 160) : null,
     status: report.status,
     handledById: report.handledById ?? null,
     handledBy: report.handledBy ? serializeActor(report.handledBy) : null,
+    reportedUser:
+      infractor && 'username' in infractor ? serializeActor(infractor) : null,
     resolutionNote: report.resolutionNote,
     resolvedAt: toIso(report.resolvedAt),
     createdAt: toIso(report.createdAt)!,

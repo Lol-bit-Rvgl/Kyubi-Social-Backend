@@ -54,6 +54,7 @@ enum ReportTargetType {
   USER
   WALL_ENTRY
   MESSAGE
+  CIRCLE
 }
 
 enum UserRole {
@@ -82,6 +83,24 @@ enum ModerationAction {
   RESOLVE_REPORT
   DISMISS_REPORT
   CHANGE_ROLE
+  // ── Panel de moderación (nuevas acciones) ──
+  WARN
+  SUSPEND_USER
+  UNSUSPEND_USER
+  HIDE_POST
+  UNHIDE_POST
+  HIDE_COMMENT
+  UNHIDE_COMMENT
+  HIDE_MESSAGE
+  UNHIDE_MESSAGE
+  PIN_POST
+  UNPIN_POST
+  FEATURE_POST
+  UNFEATURE_POST
+  HIDE_PROFILE
+  UNHIDE_PROFILE
+  ASSIGN_TITLE
+  REMOVE_TITLE
 }
 
 enum ModerationTargetType {
@@ -90,6 +109,8 @@ enum ModerationTargetType {
   CIRCLE
   ROOM
   REPORT
+  COMMENT
+  MESSAGE
 }
 
 enum CircleRole {
@@ -133,69 +154,80 @@ enum FollowRequestStatus {
 }
 
 model User {
-  id                  String              @id @default(cuid())
-  email               String              @unique
-  username            String              @unique
-  passwordHash        String
-  displayName         String?
-  avatarUrl           String?
-  bannerUrl           String?
-  bio                 String?             @db.VarChar(500)
-  emailVerifiedAt     DateTime?
-  role                UserRole            @default(USER)
-  onboardingCompleted Boolean             @default(false)
-  usernameColor       String?
-  avatarFrame         String?
-  level               Int                 @default(1)
-  isOnline            Boolean             @default(false)
-  gender              String?
-  showGender          Boolean             @default(true)
-  stickers            String[]            @default([])
-  interests           String[]            @default([])
-  socialLinks         Json?
-  voiceBioUrl         String?
-  hasPaymentPassword  Boolean             @default(false)
-  paymentPasswordHash String?
-  availability        Json?
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
-  posts               Post[]
-  refreshTokens       RefreshToken[]
-  reactions           Reaction[]
-  following           Follow[]            @relation("Following")
-  followers           Follow[]            @relation("Followers")
-  verificationTokens  VerificationToken[]
-  comments            Comment[]
-  commentReactions    CommentReaction[]
-  visitsMade          ProfileVisit[]      @relation("Visitor")
-  visitsReceived      ProfileVisit[]      @relation("Visited")
-  drafts              Draft[]
-  wallOwned           WallEntry[]         @relation("WallOwned")
-  wallAuthored        WallEntry[]         @relation("WallAuthor")
-  wallLikes           WallLike[]
+  id                      String               @id @default(cuid())
+  email                   String               @unique
+  username                String               @unique
+  passwordHash            String
+  displayName             String?
+  avatarUrl               String?
+  bannerUrl               String?
+  bio                     String?              @db.VarChar(500)
+  emailVerifiedAt         DateTime?
+  role                    UserRole             @default(USER)
+  onboardingCompleted     Boolean              @default(false)
+  usernameColor           String?
+  avatarFrame             String?
+  level                   Int                  @default(1)
+  isOnline                Boolean              @default(false)
+  gender                  String?
+  showGender              Boolean              @default(true)
+  stickers                String[]             @default([])
+  interests               String[]             @default([])
+  socialLinks             Json?
+  voiceBioUrl             String?
+  hasPaymentPassword      Boolean              @default(false)
+  paymentPasswordHash     String?
+  availability            Json?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  posts                   Post[]
+  refreshTokens           RefreshToken[]
+  reactions               Reaction[]
+  following               Follow[]             @relation("Following")
+  followers               Follow[]             @relation("Followers")
+  verificationTokens      VerificationToken[]
+  comments                Comment[]
+  commentReactions        CommentReaction[]
+  visitsMade              ProfileVisit[]       @relation("Visitor")
+  visitsReceived          ProfileVisit[]       @relation("Visited")
+  drafts                  Draft[]
+  wallOwned               WallEntry[]          @relation("WallOwned")
+  wallAuthored            WallEntry[]          @relation("WallAuthor")
+  wallLikes               WallLike[]
   conversationMemberships ConversationMember[]
-  messagesSent        Message[]
-  reportsMade         Report[]            @relation("ReportAuthor")
-  notifications       Notification[]      @relation("NotificationsReceived")
-  notificationsAuthored Notification[]    @relation("NotificationsAuthored")
-  circlesCreated      Circle[]            @relation("CircleCreator")
-  circleMemberships   CircleMember[]
-  roomsHosted         Room[]              @relation("RoomHost")
-  roomParticipations  RoomParticipant[]
-  roomMessages        RoomMessage[]
-  characters          Character[]
-  mutesReceived       Mute[]              @relation("MutedUser")
-  mutesIssued         Mute[]              @relation("MuteModerator")
-  bansReceived        Ban[]               @relation("BannedUser")
-  bansIssued          Ban[]               @relation("BanModerator")
-  moderationActions   ModerationLog[]     @relation("ModeratorAction")
-  reportsHandled      Report[]            @relation("ReportHandler")
-  deviceTokens        DeviceToken[]
-  stories             Story[]
-  storyViews          StoryView[]
-  bookmarks           Bookmark[]
-  assignedRoleSlots   RoleSlot[]
-  followRequestsMade   FollowRequest[] @relation("FollowRequestsMade")
+  messagesSent            Message[]
+  reportsMade             Report[]             @relation("ReportAuthor")
+  notifications           Notification[]       @relation("NotificationsReceived")
+  notificationsAuthored   Notification[]       @relation("NotificationsAuthored")
+  circlesCreated          Circle[]             @relation("CircleCreator")
+  circleMemberships       CircleMember[]
+  roomsHosted             Room[]               @relation("RoomHost")
+  roomParticipations      RoomParticipant[]
+  roomMessages            RoomMessage[]
+  characters              Character[]
+  mutesReceived           Mute[]               @relation("MutedUser")
+  mutesIssued             Mute[]               @relation("MuteModerator")
+  bansReceived            Ban[]                @relation("BannedUser")
+  bansIssued              Ban[]                @relation("BanModerator")
+  moderationActions       ModerationLog[]      @relation("ModeratorAction")
+  reportsHandled          Report[]             @relation("ReportHandler")
+  reportsReceived         Report[]             @relation("ReportedUser")
+  logsAsTargetUser        ModerationLog[]      @relation("LogTargetUser")
+  postsHidden             Post[]               @relation("PostHiddenBy")
+
+  // ── Moderación del perfil (panel de moderación) ──
+  isSuspended     Boolean   @default(false) @map("is_suspended")
+  suspendedUntil  DateTime? @map("suspended_until")
+  isProfileHidden Boolean   @default(false) @map("is_profile_hidden")
+  moderationNotes String?   @map("moderation_notes")
+
+  titles                 UserTitle[]
+  deviceTokens           DeviceToken[]
+  stories                Story[]
+  storyViews             StoryView[]
+  bookmarks              Bookmark[]
+  assignedRoleSlots      RoleSlot[]
+  followRequestsMade     FollowRequest[] @relation("FollowRequestsMade")
   followRequestsReceived FollowRequest[] @relation("FollowRequestsReceived")
 }
 
@@ -236,15 +268,15 @@ model Follow {
 
 /// Solicitud de seguimiento pendiente de aprobación (follow con aprobación).
 model FollowRequest {
-  id         String              @id @default(cuid())
+  id          String              @id @default(cuid())
   requesterId String
-  targetId   String
-  status     FollowRequestStatus @default(PENDING)
-  createdAt  DateTime            @default(now())
-  updatedAt  DateTime            @updatedAt
+  targetId    String
+  status      FollowRequestStatus @default(PENDING)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
   respondedAt DateTime?
-  requester  User                @relation("FollowRequestsMade", fields: [requesterId], references: [id], onDelete: Cascade)
-  target     User                @relation("FollowRequestsReceived", fields: [targetId], references: [id], onDelete: Cascade)
+  requester   User                @relation("FollowRequestsMade", fields: [requesterId], references: [id], onDelete: Cascade)
+  target      User                @relation("FollowRequestsReceived", fields: [targetId], references: [id], onDelete: Cascade)
 
   @@unique([requesterId, targetId])
   @@index([targetId, status])
@@ -294,23 +326,37 @@ model Post {
   allowComments  Boolean        @default(true)
   allowReactions Boolean        @default(true)
 
+  // ── Moderación y curaduría del panel ──
+  isPinned       Boolean   @default(false) @map("is_pinned")
+  pinnedAt       DateTime? @map("pinned_at")
+  isHidden       Boolean   @default(false) @map("is_hidden")
+  hiddenReason   String?   @map("hidden_reason")
+  hiddenByUserId String?   @map("hidden_by_user_id")
+  hiddenBy       User?     @relation("PostHiddenBy", fields: [hiddenByUserId], references: [id], onDelete: SetNull)
+  featuredUntil  DateTime? @map("featured_until")
+
   // ── Roleplay / OCs ──
-  characterId        String?   @db.VarChar(64)
-  characterName      String?   @db.VarChar(80)
+  characterId        String? @db.VarChar(64)
+  characterName      String? @db.VarChar(80)
   characterAvatarUrl String?
 
-  publishedAt    DateTime?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  reactions      Reaction[]
-  comments       Comment[]
-  bookmarks      Bookmark[]
-  roleSlots      RoleSlot[]
-  circleId       String?
-  circle         Circle?        @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  publishedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  reactions   Reaction[]
+  comments    Comment[]
+  bookmarks   Bookmark[]
+  roleSlots   RoleSlot[]
+  circleId    String?
+  circle      Circle?    @relation(fields: [circleId], references: [id], onDelete: Cascade)
+
+  moderationLogs ModerationLog[] @relation("LogTargetPost")
 
   @@index([createdAt])
   @@index([authorId, createdAt])
+  @@index([isPinned])
+  @@index([isHidden])
+  @@index([featuredUntil])
 }
 
 model Bookmark {
@@ -330,16 +376,16 @@ model Bookmark {
 /// Vacante de rol en una publicación de roleplay. Un slot puede estar abierto
 /// (buscando intérprete) o asignado a un usuario/OC concreto.
 model RoleSlot {
-  id                 String     @id @default(cuid())
-  postId             String
-  title              String     @db.VarChar(120)
-  description        String?    @db.VarChar(2000)
-  requirements       String?    @db.VarChar(1000)
-  isOpen             Boolean    @default(true)
+  id                  String   @id @default(cuid())
+  postId              String
+  title               String   @db.VarChar(120)
+  description         String?  @db.VarChar(2000)
+  requirements        String?  @db.VarChar(1000)
+  isOpen              Boolean  @default(true)
   assignedCharacterId String?
-  assignedUserId     String?
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
+  assignedUserId      String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   post              Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
   assignedCharacter Character? @relation(fields: [assignedCharacterId], references: [id], onDelete: SetNull)
@@ -361,14 +407,19 @@ model Reaction {
 }
 
 model Comment {
-  id        String            @id @default(cuid())
+  id        String  @id @default(cuid())
   postId    String
   userId    String
-  body      String            @db.VarChar(4000)
+  body      String  @db.VarChar(4000)
   parentId  String?
   mediaUrl  String?
   mediaType String?
-  isEdited  Boolean           @default(false)
+  isEdited  Boolean @default(false)
+
+  // ── Moderación (panel) ──
+  isHidden     Boolean @default(false) @map("is_hidden")
+  hiddenReason String? @map("hidden_reason")
+
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
   post      Post              @relation(fields: [postId], references: [id], onDelete: Cascade)
@@ -400,8 +451,8 @@ model ProfileVisit {
   visited   User     @relation("Visited", fields: [visitedId], references: [id], onDelete: Cascade)
   visitedAt DateTime @default(now())
 
-  @@index([visitedId, visitedAt])
   @@unique([visitorId, visitedId])
+  @@index([visitedId, visitedAt])
 }
 
 model Draft {
@@ -417,41 +468,41 @@ model Draft {
 }
 
 model WallEntry {
-  id        String   @id @default(cuid())
+  id        String      @id @default(cuid())
   ownerId   String
   authorId  String
-  body      String   @db.VarChar(4000)
+  body      String      @db.VarChar(4000)
   imageUrl  String?
   parentId  String?
-  owner     User     @relation("WallOwned", fields: [ownerId], references: [id], onDelete: Cascade)
-  author    User     @relation("WallAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  parent    WallEntry? @relation("WallReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  owner     User        @relation("WallOwned", fields: [ownerId], references: [id], onDelete: Cascade)
+  author    User        @relation("WallAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  parent    WallEntry?  @relation("WallReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies   WallEntry[] @relation("WallReplies")
   likes     WallLike[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
   @@index([ownerId, createdAt])
   @@index([parentId])
 }
 
 model WallLike {
-  id         String    @id @default(cuid())
-  entryId    String
-  userId     String
-  type       ReactionType @default(LIKE)
-  entry      WallEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id      String       @id @default(cuid())
+  entryId String
+  userId  String
+  type    ReactionType @default(LIKE)
+  entry   WallEntry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([entryId, userId])
 }
 
 model Conversation {
-  id        String             @id @default(cuid())
-  type      ConversationType   @default(DIRECT)
-  title     String?            @db.VarChar(120)
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  id        String               @id @default(cuid())
+  type      ConversationType     @default(DIRECT)
+  title     String?              @db.VarChar(120)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
   members   ConversationMember[]
   messages  Message[]
 
@@ -476,51 +527,62 @@ model ConversationMember {
 }
 
 model Message {
-  id             String       @id @default(cuid())
+  id             String  @id @default(cuid())
   conversationId String
   senderId       String
-  body           String       @db.VarChar(4000)
+  body           String  @db.VarChar(4000)
   mediaUrl       String?
   mediaType      String?
   replyToId      String?
 
   // ── Roleplay / OCs ──
-  characterId        String?   @db.VarChar(64)
-  characterName      String?   @db.VarChar(80)
+  characterId        String? @db.VarChar(64)
+  characterName      String? @db.VarChar(80)
   characterAvatarUrl String?
-  extensions         Json      @default("{}")
+  extensions         Json    @default("{}")
 
-  editedAt       DateTime?
-  deletedAt      DateTime?
-  createdAt      DateTime     @default(now())
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  replyTo        Message?     @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies        Message[]    @relation("MessageReply")
-  readBy         ConversationMember[] @relation("MessageLastRead")
+  editedAt  DateTime?
+  deletedAt DateTime?
+
+  // ── Moderación (panel) ──
+  isHidden     Boolean @default(false) @map("is_hidden")
+  hiddenReason String? @map("hidden_reason")
+
+  createdAt    DateTime             @default(now())
+  conversation Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User                 @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  replyTo      Message?             @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies      Message[]            @relation("MessageReply")
+  readBy       ConversationMember[] @relation("MessageLastRead")
 
   @@index([conversationId, createdAt])
   @@index([senderId])
 }
 
 model Report {
-  id         String           @id @default(cuid())
-  reporterId String
-  reason     ReportReason
-  details    String?          @db.VarChar(2000)
-  targetType ReportTargetType
-  targetId   String
-  status         ReportStatus    @default(OPEN)
-  handledById    String?
-  handledBy      User?            @relation("ReportHandler", fields: [handledById], references: [id], onDelete: SetNull)
-  resolutionNote String?          @db.VarChar(2000)
-  resolvedAt     DateTime?
-  createdAt  DateTime         @default(now())
-  reporter   User             @relation("ReportAuthor", fields: [reporterId], references: [id], onDelete: Cascade)
+  id              String           @id @default(cuid())
+  reporterId      String
+  reason          ReportReason
+  details         String?          @db.VarChar(2000)
+  targetType      ReportTargetType
+  targetId        String
+  status          ReportStatus     @default(OPEN)
+  handledById     String?
+  handledBy       User?            @relation("ReportHandler", fields: [handledById], references: [id], onDelete: SetNull)
+  resolutionNote  String?          @db.VarChar(2000)
+  resolutionNotes String?          @map("resolution_notes") @db.VarChar(2000)
+  resolvedAt      DateTime?
+  // ── Usuario autor del recurso denunciado (para el centro de reportes) ──
+  reportedUserId  String?          @map("reported_user_id")
+  reportedUser    User?            @relation("ReportedUser", fields: [reportedUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  reporter        User             @relation("ReportAuthor", fields: [reporterId], references: [id], onDelete: Cascade)
 
   @@index([targetType, targetId])
   @@index([status])
   @@index([reporterId])
+  @@index([reportedUserId])
 }
 
 model Notification {
@@ -572,21 +634,21 @@ model CircleMember {
 }
 
 model Room {
-  id           String             @id @default(cuid())
-  name         String             @db.VarChar(80)
-  description  String?            @db.VarChar(600)
+  id           String            @id @default(cuid())
+  name         String            @db.VarChar(80)
+  description  String?           @db.VarChar(600)
   imageUrl     String?
   hostId       String
-  host         User               @relation("RoomHost", fields: [hostId], references: [id], onDelete: Cascade)
-  status       RoomStatus         @default(ACTIVE)
-  access       RoomAccess         @default(PUBLIC)
-  kind         RoomKind           @default(SOCIAL)
+  host         User              @relation("RoomHost", fields: [hostId], references: [id], onDelete: Cascade)
+  status       RoomStatus        @default(ACTIVE)
+  access       RoomAccess        @default(PUBLIC)
+  kind         RoomKind          @default(SOCIAL)
   capacity     Int?
   circleId     String?
-  circle       Circle?            @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  circle       Circle?           @relation(fields: [circleId], references: [id], onDelete: Cascade)
   participants RoomParticipant[]
   messages     RoomMessage[]
-  createdAt    DateTime           @default(now())
+  createdAt    DateTime          @default(now())
   endedAt      DateTime?
 
   @@index([status, createdAt])
@@ -594,16 +656,16 @@ model Room {
 }
 
 model RoomMessage {
-  id        String   @id @default(cuid())
-  roomId    String
-  senderId  String
-  body      String   @db.VarChar(4000)
+  id       String @id @default(cuid())
+  roomId   String
+  senderId String
+  body     String @db.VarChar(4000)
 
   // ── Roleplay / OCs ──
-  characterId        String?   @db.VarChar(64)
-  characterName      String?   @db.VarChar(80)
+  characterId        String? @db.VarChar(64)
+  characterName      String? @db.VarChar(80)
   characterAvatarUrl String?
-  extensions         Json      @default("{}")
+  extensions         Json    @default("{}")
 
   createdAt DateTime @default(now())
   room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
@@ -614,16 +676,16 @@ model RoomMessage {
 
 /// Ficha de Personaje / OC (Original Character) para roleplay.
 model Character {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   userId      String
-  name        String   @db.VarChar(60)
-  alias       String?  @db.VarChar(40)
-  tagline     String?  @db.VarChar(140)
+  name        String  @db.VarChar(60)
+  alias       String? @db.VarChar(40)
+  tagline     String? @db.VarChar(140)
   avatarUrl   String?
   bannerUrl   String?
-  description String?  @db.VarChar(2000)
-  lore        String?  @db.Text
-  appearance  String?  @db.Text
+  description String? @db.VarChar(2000)
+  lore        String? @db.Text
+  appearance  String? @db.Text
 
   // Listas de etiquetas libres serializadas como JSON.
   abilities  Json @default("[]")
@@ -638,23 +700,23 @@ model Character {
   themeColor    String? @db.VarChar(9)
   themeAccent   String? @db.VarChar(9)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   roleSlots RoleSlot[]
 
   @@index([userId, createdAt])
 }
 
 model RoomParticipant {
-  id       String   @id @default(cuid())
+  id       String    @id @default(cuid())
   roomId   String
   userId   String
-  role     String   @default("PARTICIPANT")
-  joinedAt DateTime @default(now())
+  role     String    @default("PARTICIPANT")
+  joinedAt DateTime  @default(now())
   leftAt   DateTime?
-  room     Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room     Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([roomId, userId])
   @@index([userId])
@@ -678,28 +740,28 @@ model Story {
 
 /// Registro de visualización de una historia por un usuario.
 model StoryView {
-  id        String   @id @default(cuid())
-  storyId   String
-  viewerId  String
-  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
-  viewer    User     @relation(fields: [viewerId], references: [id], onDelete: Cascade)
-  viewedAt  DateTime @default(now())
+  id       String   @id @default(cuid())
+  storyId  String
+  viewerId String
+  story    Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  viewer   User     @relation(fields: [viewerId], references: [id], onDelete: Cascade)
+  viewedAt DateTime @default(now())
 
   @@unique([storyId, viewerId])
   @@index([viewerId])
 }
 
 model Mute {
-  id           String    @id @default(cuid())
-  userId       String
-  moderatorId  String
-  reason       String?   @db.VarChar(1000)
-  expiresAt    DateTime?
-  revokedAt    DateTime?
-  revokedById  String?
-  createdAt    DateTime   @default(now())
-  user         User      @relation("MutedUser", fields: [userId], references: [id], onDelete: Cascade)
-  moderator    User      @relation("MuteModerator", fields: [moderatorId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid())
+  userId      String
+  moderatorId String
+  reason      String?   @db.VarChar(1000)
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  revokedById String?
+  createdAt   DateTime  @default(now())
+  user        User      @relation("MutedUser", fields: [userId], references: [id], onDelete: Cascade)
+  moderator   User      @relation("MuteModerator", fields: [moderatorId], references: [id], onDelete: Cascade)
 
   @@index([userId, revokedAt])
   @@index([moderatorId])
@@ -707,16 +769,16 @@ model Mute {
 }
 
 model Ban {
-  id           String    @id @default(cuid())
-  userId       String
-  moderatorId  String
-  reason       String?   @db.VarChar(1000)
-  expiresAt    DateTime?
-  revokedAt    DateTime?
-  revokedById  String?
-  createdAt    DateTime   @default(now())
-  user         User      @relation("BannedUser", fields: [userId], references: [id], onDelete: Cascade)
-  moderator    User      @relation("BanModerator", fields: [moderatorId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid())
+  userId      String
+  moderatorId String
+  reason      String?   @db.VarChar(1000)
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  revokedById String?
+  createdAt   DateTime  @default(now())
+  user        User      @relation("BannedUser", fields: [userId], references: [id], onDelete: Cascade)
+  moderator   User      @relation("BanModerator", fields: [moderatorId], references: [id], onDelete: Cascade)
 
   @@index([userId, revokedAt])
   @@index([moderatorId])
@@ -729,6 +791,11 @@ model ModerationLog {
   action       ModerationAction
   targetType   ModerationTargetType
   targetId     String
+  // ── FKs dedicadas del panel de moderación ──
+  targetUserId String?              @map("target_user_id")
+  targetUser   User?                @relation("LogTargetUser", fields: [targetUserId], references: [id], onDelete: SetNull)
+  targetPostId String?              @map("target_post_id")
+  targetPost   Post?                @relation("LogTargetPost", fields: [targetPostId], references: [id], onDelete: SetNull)
   reason       String?              @db.VarChar(1000)
   metadata     Json?
   createdAt    DateTime             @default(now())
@@ -736,5 +803,20 @@ model ModerationLog {
 
   @@index([moderatorId, createdAt])
   @@index([targetType, targetId])
+  @@index([targetUserId])
+  @@index([targetPostId])
   @@index([createdAt])
+}
+
+/// Título / etiqueta visible en el perfil de un usuario (ej: 'VIP', 'Ganador Torneo').
+model UserTitle {
+  id           String   @id @default(cuid())
+  userId       String
+  titleText    String   @map("title_text") @db.VarChar(80)
+  colorHex     String   @map("color_hex") @db.VarChar(9)
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, displayOrder])
 }

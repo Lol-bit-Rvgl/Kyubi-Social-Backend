@@ -72,7 +72,7 @@ export default function AdminDashboardPage() {
       )}
 
       {/* Métricas */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           icon="🚨"
           label="Reportes pendientes"
@@ -106,9 +106,9 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Actividad reciente + accesos rápidos */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Actividad reciente */}
-        <div className="xl:col-span-2 rounded-xl border border-neutral-900 bg-neutral-950">
+        <div className="lg:col-span-2 rounded-xl border border-neutral-900 bg-neutral-950">
           <div className="px-4 py-3 border-b border-neutral-900 flex items-center justify-between">
             <h2 className="text-sm font-bold text-white">Actividad reciente</h2>
             <Link

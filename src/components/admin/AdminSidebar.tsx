@@ -33,6 +33,7 @@ export default function AdminSidebar() {
   const router = useRouter();
   const [user, setUser] = useState<AdminUser | null>(null);
   const [checked, setChecked] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('kyubi_access_token');
@@ -62,16 +63,75 @@ export default function AdminSidebar() {
       .finally(() => setChecked(true));
   }, [router]);
 
-  if (!checked) {
-    return (
-      <aside className="w-64 min-h-screen bg-black border-r border-neutral-900 flex items-center justify-center">
-        <span className="text-neutral-600 text-sm animate-pulse">Verificando…</span>
-      </aside>
-    );
-  }
+  // Cerrar drawer al cambiar de ruta
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
+
+  const content = <SidebarContent pathname={pathname} user={user} />;
 
   return (
-    <aside className="w-64 min-h-screen bg-black border-r border-neutral-900 flex flex-col shrink-0">
+    <>
+      {/* ── Topbar móvil (< md) ── */}
+      <header className="md:hidden fixed top-0 inset-x-0 z-40 h-14 bg-black border-b border-neutral-900 flex items-center justify-between px-4">
+        <Link href="/admin" className="flex items-baseline gap-2">
+          <span className="text-lg font-black tracking-tight text-white">KYUBI</span>
+          <span className="text-[8px] font-semibold uppercase tracking-[0.25em] text-neutral-500">
+            Mod
+          </span>
+        </Link>
+        <button
+          type="button"
+          aria-label={drawerOpen ? 'Cerrar menú' : 'Abrir menú'}
+          onClick={() => setDrawerOpen((v) => !v)}
+          className="w-9 h-9 flex items-center justify-center rounded-lg text-neutral-300 hover:bg-neutral-900 border border-neutral-800"
+        >
+          {drawerOpen ? '✕' : '☰'}
+        </button>
+      </header>
+
+      {/* ── Drawer móvil (< md) ── */}
+      {drawerOpen && (
+        <>
+          <div
+            className="md:hidden fixed inset-0 z-40 bg-black/70"
+            onClick={() => setDrawerOpen(false)}
+          />
+          <aside className="md:hidden fixed inset-y-0 left-0 z-50 w-64 bg-black border-r border-neutral-900 overflow-y-auto">
+            {checked ? (
+              content
+            ) : (
+              <div className="h-full flex items-center justify-center">
+                <span className="text-neutral-600 text-sm animate-pulse">Verificando…</span>
+              </div>
+            )}
+          </aside>
+        </>
+      )}
+
+      {/* ── Sidebar fijo (md+) ── */}
+      <aside className="hidden md:flex w-64 min-h-screen bg-black border-r border-neutral-900 flex-col shrink-0 sticky top-0">
+        {checked ? (
+          content
+        ) : (
+          <div className="flex-1 flex items-center justify-center">
+            <span className="text-neutral-600 text-sm animate-pulse">Verificando…</span>
+          </div>
+        )}
+      </aside>
+    </>
+  );
+}
+
+function SidebarContent({
+  pathname,
+  user,
+}: {
+  pathname: string;
+  user: AdminUser | null;
+}) {
+  return (
+    <>
       {/* Header / Logo */}
       <div className="px-6 pt-8 pb-6">
         <Link href="/admin" className="block">
@@ -107,7 +167,6 @@ export default function AdminSidebar() {
 
       {/* Footer */}
       <div className="p-4 space-y-3">
-        {/* Estado del sistema */}
         <div className="rounded-xl bg-neutral-950 border border-neutral-900 px-4 py-3">
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
@@ -123,7 +182,6 @@ export default function AdminSidebar() {
           </p>
         </div>
 
-        {/* Tarjeta de usuario */}
         {user && (
           <div className="rounded-xl bg-neutral-950 border border-neutral-900 p-3 flex items-center gap-3">
             {user.avatarUrl ? (
@@ -152,6 +210,6 @@ export default function AdminSidebar() {
           </div>
         )}
       </div>
-    </aside>
+    </>
   );
 }

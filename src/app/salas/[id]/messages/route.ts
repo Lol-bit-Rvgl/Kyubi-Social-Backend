@@ -6,6 +6,7 @@ import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { emitToSala } from '@/lib/socketio';
 import { serializeAuthor } from '@/lib/serialize';
+import { optionalSafeHttpUrl } from '@/lib/validation';
 
 export const GET = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireSession(request);
@@ -37,6 +38,10 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
   const url = new URL(request.url);
   const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get('limit') ?? '30', 10) || 30));
   const before = url.searchParams.get('before');
+  // `sort=asc` devuelve los últimos `limit` mensajes ordenados cronológicamente
+  // (ascendente), pensado para clientes que consumen el historial como lista.
+  // El resto de clientes conservan el orden descendente (hay paginación con `before`).
+  const sortAsc = url.searchParams.get('sort') === 'asc';
 
   const where: Prisma.RoomMessageWhereInput = { roomId: id };
   if (before) {
@@ -73,8 +78,11 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
     })) > 0;
   }
 
+  const serialized = messages.map(serializeRoomMessage);
+  if (sortAsc) serialized.reverse();
+
   return ok({
-    data: messages.map(serializeRoomMessage),
+    data: serialized,
     hasMore,
     total: await prisma.roomMessage.count({ where: { roomId: id } }),
   });
@@ -97,6 +105,7 @@ function serializeRoomMessage(message: {
   id: string;
   roomId: string;
   senderId: string;
+  type: string;
   body: string;
   characterId?: string | null;
   characterName?: string | null;
@@ -105,14 +114,24 @@ function serializeRoomMessage(message: {
   createdAt: Date;
   sender: SenderPayload;
 }) {
+  const senderName = message.sender.displayName ?? message.sender.username;
   return {
     id: message.id,
     roomId: message.roomId,
     senderId: message.senderId,
     sender: serializeAuthor(message.sender),
-    body: message.body,
 
-    // ── Roleplay / OCs ──
+    // ── Payload estructurado (cliente genérico) ──
+    senderName,
+    username: message.sender.username,
+    roleId: message.characterId ?? null,
+    roleName: message.characterName ?? null,
+    type: message.type,
+    content: message.body,
+    metadata: (message.extensions ?? {}) as Prisma.JsonObject,
+
+    // ── Compatibilidad con el wire format existente ──
+    body: message.body,
     characterId: message.characterId ?? null,
     characterName: message.characterName ?? null,
     characterAvatarUrl: message.characterAvatarUrl ?? null,
@@ -125,10 +144,13 @@ function serializeRoomMessage(message: {
 const sendSchema = z.object({
   body: z.string().trim().min(1).max(4000),
 
+  // Tipo de contenido: texto por defecto; voz/imagen/encuesta para clientes ricos.
+  type: z.enum(['TEXT', 'VOICE', 'IMAGE', 'POLL']).default('TEXT'),
+
   // ── Roleplay / OCs ──
   characterId: z.string().max(64).nullable().optional(),
   characterName: z.string().max(80).nullable().optional(),
-  characterAvatarUrl: z.string().max(2048).nullable().optional(),
+  characterAvatarUrl: optionalSafeHttpUrl,
   extensions: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
@@ -158,6 +180,7 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
     data: {
       roomId: id,
       senderId: session.userId,
+      type: body.data.type,
       body: body.data.body,
 
       characterId: body.data.characterId ?? null,

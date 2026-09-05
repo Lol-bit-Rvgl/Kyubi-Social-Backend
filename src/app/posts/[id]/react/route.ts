@@ -1,7 +1,7 @@
 import { ReactionType } from '@prisma/client';
 import { z } from 'zod';
 import { canAccessPost } from '@/lib/posts';
-import { requireSession } from '@/lib/auth';
+import { assertCanCreateContent } from '@/lib/authz';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { notify } from '@/lib/notifications';
@@ -12,9 +12,12 @@ const schema = z.object({
   type: z.string().max(10).optional(),
 });
 
+const reactionTypeSchema = z.nativeEnum(ReactionType);
+
 export const POST = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
-  const session = await requireSession(request);
-  if (!session) return fail('No autorizado', 401);
+  // Bloquea usuarios baneados y silenciados: no solo dependemos del JWT (15 min).
+  const session = await assertCanCreateContent(request);
+  if (session instanceof Response) return session;
   const { id } = await params;
   const access = await canAccessPost(id, session.userId);
   if (access === null) return fail('Publicación no encontrada', 404);
@@ -24,7 +27,8 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   const reactionType = body.success
     ? normalizeReactionKey(body.data.type ?? body.data.emoji ?? 'like')
     : ('like' as const);
-  const prismaType = reactionType.toUpperCase();
+  // Validación runtime del enum (nunca un cast `as` inseguro).
+  const prismaType = reactionTypeSchema.parse(reactionType.toUpperCase());
 
   const existing = await prisma.reaction.findUnique({
     where: { postId_userId: { postId: id, userId: session.userId } },
@@ -37,7 +41,7 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
     added = false;
   } else {
     await prisma.reaction.create({
-      data: { postId: id, userId: session.userId, type: reactionType.toUpperCase() as ReactionType },
+      data: { postId: id, userId: session.userId, type: prismaType },
     });
     added = true;
   }
@@ -51,10 +55,15 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
     });
   }
 
-  const rows = await prisma.reaction.findMany({ where: { postId: id }, select: { type: true } });
+  // Conteos agrupados en base de datos (una consulta, exactos).
+  const grouped = await prisma.reaction.groupBy({
+    by: ['type'],
+    where: { postId: id },
+    _count: { _all: true },
+  });
   const counts = emptyReactionCounts();
-  for (const r of rows) {
-    counts[reactionKey(r.type)] += 1;
+  for (const r of grouped) {
+    counts[reactionKey(r.type)] += r._count._all;
   }
 
   return ok({ added, reactionCounts: counts });

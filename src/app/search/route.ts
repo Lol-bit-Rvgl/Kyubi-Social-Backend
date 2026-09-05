@@ -21,6 +21,29 @@ function sanitizeQuery(raw: string): string {
     .trim();
 }
 
+/**
+ * Escapa comodines de ILIKE/LIKE (`%`, `_` y `\`) para impedir que el usuario
+ * expanda el patrón (p.ej. enviando `%%%%...` o `_` en masa) y provoque una
+ * consulta costosa (DoS). Con `standard_conforming_strings` (default de PG),
+ * `\%` y `\_` representan literalmente `%` y `_`.
+ */
+function escapeLike(input: string): string {
+  return input.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+/**
+ * Restricción de visibilidad/moderación para publicaciones.
+ *
+ * NOTA sobre bloqueos de usuario: en el schema actual NO existe un modelo
+ * `Block` persistente — la ruta `users/[username]/block` sólo elimina follows,
+ * por lo que no hay lista de bloqueos que excluir de los resultados. Si se
+ * introduce un modelo `Block` (recomendado), basta añadir aquí un `NOT EXISTS`
+ * sobre `p."authorId"` en ambos lados (el autor que bloquea al visor y el visor
+ * que bloquea al autor). Hasta entonces, el filtro de visibilidad `PUBLIC` +
+ * `isHidden=false` ya elimina la fuga de contenido privado/modereado.
+ */
+const VISIBLE_POST_FILTER = `p."isHidden" = false AND p."visibility" = 'PUBLIC'`;
+
 interface RawPostRow {
   id: string;
   content: string;
@@ -114,7 +137,8 @@ export const GET = withErrorHandling(async (request: Request) => {
           to_tsvector($1, coalesce(p."content", '') || ' ' || array_to_string(p."tags", ' ')),
           plainto_tsquery($1, $2)) AS rank
        FROM "Post" p JOIN "User" u ON u."id" = p."authorId"
-       WHERE to_tsvector($1, coalesce(p."content", '') || ' ' || array_to_string(p."tags", ' '))
+       WHERE ${VISIBLE_POST_FILTER}
+         AND to_tsvector($1, coalesce(p."content", '') || ' ' || array_to_string(p."tags", ' '))
              @@ plainto_tsquery($1, $2)
        ORDER BY rank DESC, p."createdAt" DESC
        LIMIT $3 OFFSET $4`,
@@ -126,15 +150,19 @@ export const GET = withErrorHandling(async (request: Request) => {
     if (tsRows.length >= Math.min(take, 5)) return tsRows;
 
     // Fallback ILIKE (prefijos, caracteres especiales, coincidencia parcial).
+    // `escaped` anula comodines (`%`, `_`) del usuario para prevenir patrones
+    // destructivos (DoS) al tiempo que conserva la semántica de búsqueda.
+    const escaped = escapeLike(query);
     const likeRows = await prisma.$queryRawUnsafe<RawPostRow[]>(
       `SELECT ${POST_FIELDS}, 0 AS rank
        FROM "Post" p JOIN "User" u ON u."id" = p."authorId"
-       WHERE p."content" ILIKE $1 OR EXISTS (
-         SELECT 1 FROM unnest(p."tags") t WHERE t ILIKE $2)
+       WHERE ${VISIBLE_POST_FILTER}
+         AND (p."content" ILIKE $1 OR EXISTS (
+           SELECT 1 FROM unnest(p."tags") t WHERE t ILIKE $2))
        ORDER BY p."createdAt" DESC
        LIMIT $3 OFFSET $4`,
-      `%${query}%`,
-      `${query}%`,
+      `%${escaped}%`,
+      `${escaped}%`,
       take,
       skip,
     );
@@ -164,14 +192,15 @@ export const GET = withErrorHandling(async (request: Request) => {
     );
 
     // Fallback ILIKE con prefijo (importante para @usernames).
+    const escaped = escapeLike(query);
     const likeRows = await prisma.$queryRawUnsafe<RawUserRow[]>(
       `SELECT ${USER_FIELDS}, 0 AS rank
        FROM "User" u
        WHERE u."username" ILIKE $1 OR u."displayName" ILIKE $1 OR u."bio" ILIKE $2
        ORDER BY u."username" ASC
        LIMIT $3 OFFSET $4`,
-      `${query}%`,
-      `%${query}%`,
+      `${escaped}%`,
+      `%${escaped}%`,
       take,
       skip,
     );
@@ -209,6 +238,7 @@ export const GET = withErrorHandling(async (request: Request) => {
     );
     if (tsRows.length >= Math.min(take, 5)) return tsRows;
 
+    const escaped = escapeLike(query);
     const likeRows = await prisma.$queryRawUnsafe<RawRoomRow[]>(
       `SELECT ${ROOM_FIELDS}, 0 AS rank
        FROM "Room" r
@@ -216,8 +246,8 @@ export const GET = withErrorHandling(async (request: Request) => {
          AND (r."name" ILIKE $1 OR r."description" ILIKE $2)
        ORDER BY r."createdAt" DESC
        LIMIT $3 OFFSET $4`,
-      `%${query}%`,
-      `%${query}%`,
+      `%${escaped}%`,
+      `%${escaped}%`,
       take,
       skip,
     );

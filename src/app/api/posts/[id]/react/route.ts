@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { canAccessPost } from '@/lib/posts';
 import { requireSession } from '@/lib/auth';
+import { assertCanCreateContent } from '@/lib/authz';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { notify } from '@/lib/notifications';
@@ -17,8 +18,9 @@ const reactionLabels: Record<string, string> = {
 };
 
 export const POST = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
-  const session = await requireSession(request);
-  if (!session) return fail('No autorizado', 401);
+  // Bloquea usuarios baneados y silenciados: no solo dependemos del JWT (15 min).
+  const session = await assertCanCreateContent(request);
+  if (session instanceof Response) return session;
 
   const body = input.safeParse(await request.json().catch(() => ({})));
   if (!body.success) return fail('Reacción inválida');

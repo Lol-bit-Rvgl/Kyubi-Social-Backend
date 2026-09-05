@@ -116,36 +116,74 @@ export async function cleanupExpiredRefreshTokens() {
 }
 
 /**
- * Headers de IP que sólo debe escribir un proxy/balanceador de confianza.
- * Se priorizan en este orden: Cloudflare (`cf-connecting-ip`) > `x-real-ip` >
- * el primer hop de `x-forwarded-for`.
+ * Headers de IP que sólo debe escribir un proxy/balanceador de confianza
+ * (Cloudflare, el LB de Render, Nginx, ...).
+ *
+ * Regla de seguridad: NO se confían las cabeceras de reenvío
+ * (`x-forwarded-for`, `x-real-ip`, `cf-connecting-ip`) a menos que se cumpla
+ * una frontera de confianza explícitamente configurada:
+ *
+ *   - `TRUSTED_PROXY_SECRET` (recomendado): si está definida, la petición debe
+ *     adjuntar esa misma cadena en la cabecera `X-Proxy-Secret` (la inyecta el
+ *     propio proxy). Un cliente externo sin el secreto NO puede forjar su IP.
+ *   - `TRUSTED_PROXIES`: nº de proxies de confianza en `x-forwarded-for`. Se
+ *     descartan esa cantidad de hops desde la derecha (los logs de cada LB) y
+ *     se devuelve el primer hop NO confiable, i.e. la IP del cliente real.
+ *
+ * Si no hay frontera configurada, NO se usan las cabeceras de IP (spoofeables)
+ * y se cae en un bucket defensivo por agente para que el rate-limiting siga
+ * funcionando sin que todas las peticiones sin IP compartan un único balde.
  *
  * `clientIp` NO debe usarse para autorización; su misión es exclusivamente
- * rate-limiting. Si la IP es inaccesible, se devuelve un bucket defensivo
- * derivado del User-Agent para evitar que todas las peticiones sin IP compitan
- * por un único balde de rate limit.
+ * rate-limiting.
  */
-const IP_HEADERS: ReadonlyArray<string> = [
-  'cf-connecting-ip',
-  'x-real-ip',
-  'x-forwarded-for',
-];
+const TRUSTED_PROXY_SECRET = process.env.TRUSTED_PROXY_SECRET || '';
+const TRUSTED_PROXIES = Math.max(0, Number(process.env.TRUSTED_PROXIES) || 0);
+
+function isUsableIp(value: string | null | undefined): value is string {
+  if (!value) return false;
+  const v = value.trim();
+  if (!v) return false;
+  if (v.toLowerCase() === 'unknown' || v === '0.0.0.0' || v === '::') return false;
+  // Rechaza paquetes que mezclan varios valores o caracteres inesperados.
+  if (/[^a-fA-F0-9:.\s]/.test(v)) return false;
+  return true;
+}
 
 export function clientIp(request: Request): string {
-  for (const header of IP_HEADERS) {
-    const raw = request.headers.get(header);
-    if (!raw) continue;
-    const value =
-      header === 'x-forwarded-for'
-        ? raw.split(',')[0]?.trim()
-        : raw.trim();
-    if (value && value.toLowerCase() !== 'unknown' && value !== '0.0.0.0') {
-      return value;
+  const secretOk =
+    TRUSTED_PROXY_SECRET.length > 0 &&
+    request.headers.get('x-proxy-secret') === TRUSTED_PROXY_SECRET;
+
+  // Solo se confía en cabeceras de reenvío cuando hay una frontera verificada:
+  //   - con secret configurado y presente en la petición, o
+  //   - sin secret pero con un recuento de proxies de confianza explícito.
+  const trustForwarded =
+    secretOk || (TRUSTED_PROXY_SECRET.length === 0 && TRUSTED_PROXIES > 0);
+
+  if (trustForwarded) {
+    // Cloudflare fija `cf-connecting-ip`; solo se acepta tras verificar el secret.
+    const cf = request.headers.get('cf-connecting-ip');
+    if (isUsableIp(cf)) return cf!.trim();
+
+    const xff = request.headers.get('x-forwarded-for');
+    if (xff) {
+      const hops = xff.split(',').map((h) => h.trim()).filter(isUsableIp);
+      if (hops.length > 0) {
+        // Primer hop NO confiable: descartamos `TRUSTED_PROXIES` desde la
+        // derecha (los log de cada LB) y tomamos el siguiente hacia la izquierda.
+        const idx = Math.max(0, hops.length - 1 - TRUSTED_PROXIES);
+        const chosen = hops[idx];
+        if (chosen) return chosen;
+      }
     }
+
+    const xri = request.headers.get('x-real-ip');
+    if (isUsableIp(xri)) return xri!.trim();
   }
-  // Sin headers de proxy confiables: bucket defensivo derivado del agente/idioma
-  // para evitar que todas las peticiones sin IP compitan por un único balde de
-  // rate limit (antes caían todas en 'unknown').
+
+  // Sin frontera de confianza: NO se usan cabeceras de IP (spoofeables). Bucket
+  // defensivo derivado del agente/idioma para mantener el rate-limiting.
   const fingerprint = [
     request.headers.get('user-agent'),
     request.headers.get('accept-language'),

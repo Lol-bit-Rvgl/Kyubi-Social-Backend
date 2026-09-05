@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  typecheck-build:
+    name: Typecheck & Build
+    runs-on: ubuntu-latest
+
+    env:
+      # Prisma necesita las URLs presentes aunque aquí no se toque la BD.
+      DATABASE_URL: postgresql://user:pass@localhost:5432/kyubi
+      DIRECT_URL: postgresql://user:pass@localhost:5432/kyubi
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Typecheck (strict)
+        run: npx tsc --noEmit
+
+      - name: Production build
+        run: npm run build

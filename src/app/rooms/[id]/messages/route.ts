@@ -7,6 +7,7 @@ import { sendPushNotification } from '@/lib/fcm';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { emitToConversation, emitToUser } from '@/lib/socketio';
+import { optionalSafeHttpUrl } from '@/lib/validation';
 
 export const GET = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireSession(request);
@@ -64,14 +65,14 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
 
 const sendSchema = z.object({
   body: z.string().trim().min(1).max(4000),
-  mediaUrl: z.string().nullable().optional(),
+  mediaUrl: optionalSafeHttpUrl,
   mediaType: z.string().nullable().optional(),
   replyToId: z.string().nullable().optional(),
 
   // ── Roleplay / OCs ──
   characterId: z.string().max(64).nullable().optional(),
   characterName: z.string().max(80).nullable().optional(),
-  characterAvatarUrl: z.string().max(2048).nullable().optional(),
+  characterAvatarUrl: optionalSafeHttpUrl,
   extensions: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 

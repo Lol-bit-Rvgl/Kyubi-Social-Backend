@@ -153,6 +153,33 @@ function sweepMatchQueue() {
 }
 setInterval(sweepMatchQueue, MATCH_SWEEP_INTERVAL_MS).unref();
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Recolector de basura de refresh tokens: cada hora elimina los tokens
+// expirados o revocados (misma condición que cleanupExpiredRefreshTokens()
+// de src/lib/auth.ts — aquí se replica porque server.mjs es ESM puro y no
+// puede importar el módulo TS sin compilación).
+// El intervalo va `.unref()` para no bloquear la terminación del proceso.
+// ─────────────────────────────────────────────────────────────────────────────
+const TOKEN_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
+async function cleanupExpiredRefreshTokensJob() {
+  try {
+    const prisma = await matchPrisma();
+    const result = await prisma.refreshToken.deleteMany({
+      where: { OR: [{ revokedAt: { not: null } }, { expiresAt: { lt: new Date() } }] },
+    });
+    if (result.count > 0) {
+      console.log(`[tokens] ${result.count} refresh token(s) expirados/revocados eliminados`);
+    }
+  } catch (err) {
+    console.error('[tokens] sweep failed:', err.message);
+  }
+}
+
+setInterval(cleanupExpiredRefreshTokensJob, TOKEN_SWEEP_INTERVAL_MS).unref();
+// Primera ejecución al arrancar, con retardo para no competir con el boot.
+setTimeout(cleanupExpiredRefreshTokensJob, 60_000).unref();
+
 async function matchPrisma() {
   if (!globalThis.__kyubiMatchPrisma) {
     const { PrismaClient } = await import('@prisma/client');
@@ -205,6 +232,155 @@ async function fetchPublicUser(userId, fallbackUsername) {
     bio: null,
     interests: [],
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mensajes de salas: persistencia vía socket (`send_room_message`).
+// Replica la semántica de POST /salas/:id/messages: ban/mute activos, sala
+// activa, pertenencia y broadcasting con payload estructurado.
+// ─────────────────────────────────────────────────────────────────────────────
+const ROOM_MESSAGE_TYPES = new Set(['TEXT', 'VOICE', 'IMAGE', 'POLL']);
+
+function normalizeRoomMessageType(type) {
+  return typeof type === 'string' && ROOM_MESSAGE_TYPES.has(type) ? type : 'TEXT';
+}
+
+function s(value, max) {
+  return typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null;
+}
+
+function objectOrEmpty(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function publicRoomSender(u) {
+  return {
+    id: u.id,
+    username: u.username,
+    displayName: u.displayName || u.username,
+    avatarUrl: u.avatarUrl || null,
+    usernameColor: u.usernameColor || null,
+    avatarFrame: u.avatarFrame || null,
+    level: u.level ?? 1,
+    showOnline: true,
+    isOnline: u.isOnline ?? false,
+    gender: u.gender || null,
+    showGender: u.showGender ?? true,
+  };
+}
+
+function roomMessagePayload(m) {
+  const sender = publicRoomSender(m.sender);
+  const metadata = objectOrEmpty(m.extensions);
+  return {
+    id: m.id,
+    roomId: m.roomId,
+    senderId: m.senderId,
+    sender,
+    // ── Payload estructurado ──
+    senderName: sender.displayName || sender.username,
+    username: sender.username,
+    roleId: m.characterId || null,
+    roleName: m.characterName || null,
+    type: m.type || 'TEXT',
+    content: m.body,
+    metadata,
+    // ── Compatibilidad con el wire format existente ──
+    body: m.body,
+    characterId: m.characterId || null,
+    characterName: m.characterName || null,
+    characterAvatarUrl: m.characterAvatarUrl || null,
+    extensions: metadata,
+    createdAt: new Date(m.createdAt).toISOString(),
+  };
+}
+
+function activeWhere(userId) {
+  return {
+    userId,
+    revokedAt: null,
+    OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+  };
+}
+
+async function hasActiveSanction(prisma, userId) {
+  const [ban, mute] = await Promise.all([
+    prisma.ban.findFirst({
+      where: activeWhere(userId),
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    }),
+    prisma.mute.findFirst({
+      where: activeWhere(userId),
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    }),
+  ]);
+  return Boolean(ban) || Boolean(mute);
+}
+
+async function handleSendRoomMessage(socket, payload) {
+  const userId = socket.data.userId;
+  if (!userId) return;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+
+  const roomId = typeof payload.roomId === 'string' ? payload.roomId : '';
+  if (!roomId) return;
+
+  const content = typeof payload.content === 'string' ? payload.content.trim() : '';
+  if (!content) return;
+  const body = content.slice(0, 4000);
+
+  const type = normalizeRoomMessageType(payload.type);
+  // Acepta tanto roleId/roleName como characterId/characterName (alias).
+  const roleId = s(payload.roleId ?? payload.characterId, 64);
+  const roleName = s(payload.roleName ?? payload.characterName, 80);
+  const roleAvatarUrl = s(payload.roleAvatarUrl ?? payload.characterAvatarUrl, 2048);
+  const metadata = objectOrEmpty(payload.metadata ?? payload.extensions);
+
+  let prisma;
+  try {
+    prisma = await matchPrisma();
+  } catch (err) {
+    console.error('[room] prisma init failed:', err.message);
+    return;
+  }
+
+  try {
+    if (await hasActiveSanction(prisma, userId)) return;
+
+    const [room, participant] = await Promise.all([
+      prisma.room.findUnique({
+        where: { id: roomId },
+        select: { id: true, status: true, hostId: true },
+      }),
+      prisma.roomParticipant.findUnique({
+        where: { roomId_userId: { roomId, userId } },
+        select: { id: true },
+      }),
+    ]);
+
+    if (!room || room.status !== 'ACTIVE') return;
+    if (!participant && room.hostId !== userId) return;
+
+    const message = await prisma.roomMessage.create({
+      data: {
+        roomId,
+        senderId: userId,
+        type,
+        body,
+        characterId: roleId,
+        characterName: roleName,
+        characterAvatarUrl: roleAvatarUrl,
+        extensions: metadata,
+      },
+      include: { sender: true },
+    });
+
+    io.to(`sala:${roomId}`).emit('room:message', roomMessagePayload(message));
+  } catch (err) {
+    console.error('[room] send_room_message failed:', err.message);
+  }
 }
 
 io.use((socket, nextFn) => {
@@ -324,6 +500,11 @@ io.on('connection', (socket) => {
 
   socket.on('match:cancel', () => {
     removeFromMatchQueue(socket.data.userId);
+  });
+
+  // Persistencia y broadcast de mensajes de sala vía Socket.IO.
+  socket.on('send_room_message', (payload) => {
+    handleSendRoomMessage(socket, payload);
   });
 
   socket.on('disconnect', () => {

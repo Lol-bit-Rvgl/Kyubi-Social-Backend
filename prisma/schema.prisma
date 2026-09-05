@@ -133,6 +133,14 @@ enum RoomKind {
   SOCIAL
 }
 
+/// Tipo de contenido de un mensaje de sala (RoomMessage).
+enum RoomMessageType {
+  TEXT
+  VOICE
+  IMAGE
+  POLL
+}
+
 enum NotificationType {
   FOLLOW
   REACTION
@@ -659,19 +667,27 @@ model RoomMessage {
   id       String @id @default(cuid())
   roomId   String
   senderId String
-  body     String @db.VarChar(4000)
+
+  /// Tipo de contenido: texto, voz, imagen o encuesta.
+  type RoomMessageType @default(TEXT)
+
+  /// Texto del mensaje o URL del contenido multimedia (voz/imagen).
+  body String @db.VarChar(4000)
 
   // ── Roleplay / OCs ──
   characterId        String? @db.VarChar(64)
   characterName      String? @db.VarChar(80)
   characterAvatarUrl String?
-  extensions         Json    @default("{}")
+
+  // ── Payload / metadatos (duración de audio, opciones y votos de encuestas) ──
+  extensions Json @default("{}")
 
   createdAt DateTime @default(now())
   room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
 
   @@index([roomId, createdAt])
+  @@index([characterId])
 }
 
 /// Ficha de Personaje / OC (Original Character) para roleplay.

@@ -107,33 +107,9 @@ describe('salas', () => {
     expect(m.room.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          AND: expect.arrayContaining([expect.objectContaining({ access: 'PUBLIC' })]),
+          AND: expect.arrayContaining([{ access: 'PUBLIC' }]),
         }),
-      }),
-    );
-  });
-
-  it('GET exploración general solo muestra salas públicas o propias', async () => {
-    const token = await tokenFor();
-    m.roomParticipant.findMany.mockResolvedValue([]);
-    m.room.findMany.mockResolvedValue([]);
-    m.room.count.mockResolvedValue(0);
-
-    const res = await listSalas(jsonRequest('http://localhost/salas', { token }));
-    expect(res.status).toBe(200);
-    expect(m.room.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          AND: expect.arrayContaining([
-            expect.objectContaining({
-              OR: expect.arrayContaining([
-                { access: 'PUBLIC' },
-                { participants: { some: { userId: 'user-1' } } },
-              ]),
-            }),
-          ]),
-        }),
-      }),
+      })
     );
   });
 

@@ -51,6 +51,7 @@ const patchSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   description: z.string().trim().max(600).nullable().optional(),
   imageUrl: z.string().nullable().optional(),
+  chatBackgroundUrl: z.string().nullable().optional(),
   capacity: z.number().int().min(2).max(500).nullable().optional(),
   access: z.enum(['PUBLIC', 'PRIVATE']).optional(),
   status: z.enum(['ACTIVE', 'ENDED']).optional(),
@@ -79,6 +80,7 @@ export const PATCH = withErrorHandling(async (request: Request, { params }: { pa
       ...(body.data.name !== undefined ? { name: body.data.name } : {}),
       ...(body.data.description !== undefined ? { description: body.data.description } : {}),
       ...(body.data.imageUrl !== undefined ? { imageUrl: body.data.imageUrl } : {}),
+      ...(body.data.chatBackgroundUrl !== undefined ? { chatBackgroundUrl: body.data.chatBackgroundUrl } : {}),
       ...(body.data.capacity !== undefined ? { capacity: body.data.capacity } : {}),
       ...(body.data.access !== undefined ? { access: body.data.access } : {}),
       ...(body.data.status !== undefined

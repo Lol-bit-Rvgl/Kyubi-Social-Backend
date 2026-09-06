@@ -646,6 +646,8 @@ model Room {
   name         String            @db.VarChar(80)
   description  String?           @db.VarChar(600)
   imageUrl     String?
+  /// Fondo de pantalla del chat (wallpaper) persistido para la sala.
+  chatBackgroundUrl String?
   hostId       String
   host         User              @relation("RoomHost", fields: [hostId], references: [id], onDelete: Cascade)
   status       RoomStatus        @default(ACTIVE)

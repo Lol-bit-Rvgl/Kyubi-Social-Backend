@@ -92,6 +92,7 @@ export function serializeRoom(
     name: room.name,
     description: room.description,
     imageUrl: room.imageUrl,
+    chatBackgroundUrl: room.chatBackgroundUrl,
     host: serializeAuthor(room.host),
     status: room.status,
     access: room.access,

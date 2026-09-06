@@ -649,6 +649,11 @@ model Room {
   /// Fondo de pantalla del chat (wallpaper) persistido para la sala.
   chatBackgroundUrl String?
   hostId       String
+  /// Estado del cine sincronizado (Sala de Cine / Screening):
+  cinemaVideoId   String?
+  cinemaState     String?   @default("STOPPED")
+  cinemaCurrentTime Float?  @default(0.0)
+  cinemaUpdatedAt   DateTime?
   host         User              @relation("RoomHost", fields: [hostId], references: [id], onDelete: Cascade)
   status       RoomStatus        @default(ACTIVE)
   access       RoomAccess        @default(PUBLIC)

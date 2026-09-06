@@ -25,7 +25,12 @@ Backend Next.js con Prisma + PostgreSQL (Supabase) para la plataforma social Kyu
 
 ### Estado actual de migraciones
 
-Última migración aplicada: `20260904125137_moderation_panel` (panel de administración)
+Última migración aplicada: `20260906100000_room_cinema_sync_and_background` — añade a `Room` los campos `chatBackgroundUrl` (fondo de chat persistente), `cinemaVideoId`, `cinemaState`, `cinemaCurrentTime`, `cinemaUpdatedAt` (Sala de Cine sincronizada).
+
+### Sala de Cine (Screening) — Socket.IO
+
+- `cinema:action` (solo HOST de la sala): `{ roomId, action: PLAY|PAUSE|SEEK|LOAD|STOP, videoId?, currentTime? }` → persiste en `Room` y retransmite `cinema:sync` a `sala:<roomId>`.
+- Sincronización inicial: vía `GET /salas/:id` (`serializeRoom` incluye campos `cinema*`); el frontend calcula el drift con `cinemaCurrentTime + (now - cinemaUpdatedAt)`.
 
 ## Sistema de Moderación (src/moderation/)
 

@@ -383,6 +383,86 @@ async function handleSendRoomMessage(socket, payload) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Sala de Cine sincronizada (YouTube): solo el HOST de la sala puede emitir
+// acciones. Se persiste estado en Room y se retransmite `cinema:sync` a la
+// sala completa para que los espectadores (read-only) sigan el reproductor.
+// ─────────────────────────────────────────────────────────────────────────────
+const CINEMA_ACTIONS = new Set(['PLAY', 'PAUSE', 'SEEK', 'LOAD', 'STOP']);
+
+async function handleCinemaAction(socket, payload) {
+  const userId = socket.data.userId;
+  if (!userId) return;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+
+  const roomId = typeof payload.roomId === 'string' ? payload.roomId : '';
+  if (!roomId) return;
+
+  const action =
+    typeof payload.action === 'string' ? payload.action.toUpperCase() : '';
+  if (!CINEMA_ACTIONS.has(action)) return;
+
+  const videoId = s(payload.videoId, 128);
+  const currentTime =
+    typeof payload.currentTime === 'number' && Number.isFinite(payload.currentTime)
+      ? Math.max(0, payload.currentTime)
+      : null;
+
+  let prisma;
+  try {
+    prisma = await matchPrisma();
+  } catch (err) {
+    console.error('[cinema] prisma init failed:', err.message);
+    return;
+  }
+
+  try {
+    const participant = await prisma.roomParticipant.findUnique({
+      where: { roomId_userId: { roomId, userId } },
+      select: { role: true },
+    });
+    // Regla de permisos: solo el HOST de la sala controla el cine.
+    if (!participant || participant.role !== 'HOST') return;
+
+    const updateData = {};
+    if (action === 'LOAD') {
+      if (!videoId) return;
+      updateData.cinemaVideoId = videoId;
+      updateData.cinemaState = 'PLAYING';
+      updateData.cinemaCurrentTime = currentTime ?? 0;
+    } else if (action === 'PLAY') {
+      updateData.cinemaState = 'PLAYING';
+      if (currentTime !== null) updateData.cinemaCurrentTime = currentTime;
+    } else if (action === 'PAUSE') {
+      updateData.cinemaState = 'PAUSED';
+      if (currentTime !== null) updateData.cinemaCurrentTime = currentTime;
+    } else if (action === 'SEEK') {
+      if (currentTime === null) return;
+      updateData.cinemaCurrentTime = currentTime;
+    } else if (action === 'STOP') {
+      updateData.cinemaState = 'STOPPED';
+      if (currentTime !== null) updateData.cinemaCurrentTime = currentTime;
+    }
+    updateData.cinemaUpdatedAt = new Date();
+
+    await prisma.room.update({
+      where: { id: roomId },
+      data: updateData,
+      select: { id: true },
+    });
+
+    io.to(`sala:${roomId}`).emit('cinema:sync', {
+      roomId,
+      action,
+      videoId: videoId ?? null,
+      currentTime: currentTime,
+      updatedAt: updateData.cinemaUpdatedAt.toISOString(),
+    });
+  } catch (err) {
+    console.error('[cinema] action failed:', err.message);
+  }
+}
+
 io.use((socket, nextFn) => {
   const auth = socket.handshake.auth ?? {};
   const header = socket.handshake.headers?.authorization ?? '';
@@ -505,6 +585,11 @@ io.on('connection', (socket) => {
   // Persistencia y broadcast de mensajes de sala vía Socket.IO.
   socket.on('send_room_message', (payload) => {
     handleSendRoomMessage(socket, payload);
+  });
+
+  // Sala de Cine sincronizada: acciones del host → persist + broadcast.
+  socket.on('cinema:action', (payload) => {
+    handleCinemaAction(socket, payload);
   });
 
   socket.on('disconnect', () => {

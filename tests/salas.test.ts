@@ -104,7 +104,37 @@ describe('salas', () => {
     const res = await listSalas(jsonRequest('http://localhost/salas?circleId=circle-1', { token }));
     expect(res.status).toBe(200);
     expect(m.circleMember.findUnique).toHaveBeenCalled();
-    expect(m.room.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ access: 'PUBLIC' }) }));
+    expect(m.room.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([expect.objectContaining({ access: 'PUBLIC' })]),
+        }),
+      }),
+    );
+  });
+
+  it('GET exploración general solo muestra salas públicas o propias', async () => {
+    const token = await tokenFor();
+    m.roomParticipant.findMany.mockResolvedValue([]);
+    m.room.findMany.mockResolvedValue([]);
+    m.room.count.mockResolvedValue(0);
+
+    const res = await listSalas(jsonRequest('http://localhost/salas', { token }));
+    expect(res.status).toBe(200);
+    expect(m.room.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              OR: expect.arrayContaining([
+                { access: 'PUBLIC' },
+                { participants: { some: { userId: 'user-1' } } },
+              ]),
+            }),
+          ]),
+        }),
+      }),
+    );
   });
 
   it('POST crea sala y convierte al autor en participante HOST', async () => {

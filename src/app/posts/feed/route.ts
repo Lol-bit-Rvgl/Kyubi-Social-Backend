@@ -14,6 +14,7 @@ export const GET = withErrorHandling(async (request: Request) => {
   const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get('limit') ?? '20', 10) || 20));
   const cursor = url.searchParams.get('cursor');
   const category = url.searchParams.get('category') ?? 'para_ti';
+  const followingOnly = url.searchParams.get('followingOnly') === 'true';
 
   const myFollowing = await prisma.follow.findMany({
     where: { followerId: session.userId },
@@ -23,9 +24,9 @@ export const GET = withErrorHandling(async (request: Request) => {
 
   const where: Prisma.PostWhereInput = {
     visibility: PostVisibility.PUBLIC,
-    ...(category === 'siguiendo'
+    ...(followingOnly || category === 'siguiendo' || category === 'following'
       ? { authorId: { in: followingIds } }
-      : category === 'tendencias'
+      : category === 'tendencias' || category === 'trending'
         ? { views: { gt: 0 } }
         : {}),
   };

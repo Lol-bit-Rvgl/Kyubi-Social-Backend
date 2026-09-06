@@ -5,6 +5,22 @@ export async function canAccessPost(postId: string, userId: string) {
   if (!post) return null;
   if (post.authorId === userId || post.visibility === 'PUBLIC') return post;
   if (post.visibility === 'PRIVATE') return false;
+  if (post.visibility === 'CIRCLE') {
+    // Posts de círculo: solo accesibles para miembros del círculo (o para
+    // cualquiera si el círculo es público). Evita el 403 falso que el chequeo
+    // de follow producía al caer por el caso genérico.
+    if (!post.circleId) return false;
+    const circle = await prisma.circle.findUnique({
+      where: { id: post.circleId },
+      select: { isPrivate: true },
+    });
+    if (!circle) return false;
+    if (!circle.isPrivate) return post;
+    const member = await prisma.circleMember.findUnique({
+      where: { circleId_userId: { circleId: post.circleId, userId } },
+    });
+    return member ? post : false;
+  }
   const follows = await prisma.follow.findUnique({
     where: { followerId_followingId: { followerId: userId, followingId: post.authorId } },
   });

@@ -31,14 +31,24 @@ export const GET = withErrorHandling(async (request: Request) => {
   const where: Prisma.RoomWhereInput = {
     status: RoomStatus.ACTIVE,
     ...(circleId ? { circleId } : {}),
-    ...(q
-      ? { OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { description: { contains: q, mode: 'insensitive' as const } }] }
-      : {}),
-    ...(circleId
-      ? myCircleMemberships
-        ? {}
-        : { access: 'PUBLIC' }
-      : {}),
+    AND: [
+      ...(q
+        ? [{ OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { description: { contains: q, mode: 'insensitive' as const } }] }]
+        : []),
+      // Exploración general (sin círculo): solo salas públicas o privadas del
+      // propio usuario (participante/host). Las salas privadas de terceros NO
+      // aparecen en "Rooms"/"Recomendadas".
+      circleId
+        ? myCircleMemberships
+          ? {}
+          : { access: 'PUBLIC' }
+        : {
+            OR: [
+              { access: 'PUBLIC' },
+              { participants: { some: { userId: session.userId } } },
+            ],
+          },
+    ],
   };
 
   const rooms = await prisma.room.findMany({

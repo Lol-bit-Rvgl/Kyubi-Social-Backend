@@ -11,7 +11,7 @@ Backend Next.js con Prisma + PostgreSQL (Supabase) para la plataforma social Kyu
 
 ## Base de Datos
 
-- ORM: **Prisma 6.19.3**
+- ORM: **Prisma 6.3.x** (`^6.3.1` según `package.json`)
 - Base: **PostgreSQL 15** en Supabase (proyecto `kyubi-social` o similar)
 - Conexión: via `DATABASE_URL` (pooler, puerto 6543) y `DIRECT_URL` (5432 para migraciones locales)
 

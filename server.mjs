@@ -532,6 +532,7 @@ async function handleRoomModeChange(socket, payload) {
       actorName: actor.displayName || actor.username || '',
       timestamp: new Date().toISOString(),
     });
+    console.log(`[SOCKET_SERVER] Broadcast room:mode_changed enviado a sala:${roomId} con modo:${mode}`);
   } catch (err) {
     console.error('[room:mode] change failed:', err.message);
   }

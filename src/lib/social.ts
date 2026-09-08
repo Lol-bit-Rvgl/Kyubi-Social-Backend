@@ -97,6 +97,7 @@ export function serializeRoom(
     cinemaState: room.cinemaState,
     cinemaCurrentTime: room.cinemaCurrentTime,
     cinemaUpdatedAt: room.cinemaUpdatedAt?.toISOString() ?? null,
+    currentMode: (room as any).currentMode ?? 'standard',
     host: serializeAuthor(room.host),
     status: room.status,
     access: room.access,

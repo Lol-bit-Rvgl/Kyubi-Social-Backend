@@ -555,6 +555,11 @@ async function handleRoomModeChange(socket, payload) {
       console.log(`[MODE_DEBUG_SERVER] canManageSala=false para user=${userId} en sala=${roomId}`);
       return;
     }
+    const prisma = await matchPrisma();
+    await prisma.room.update({
+      where: { id: roomId },
+      data: { currentMode: mode },
+    });
     const actor = await fetchPublicUser(userId, socket.data.username || 'Moderador');
     io.to(`sala:${roomId}`).emit('room:mode_changed', {
       roomId,

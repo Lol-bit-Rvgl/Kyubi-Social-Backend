@@ -654,6 +654,9 @@ model Room {
   cinemaState     String?   @default("STOPPED")
   cinemaCurrentTime Float?  @default(0.0)
   cinemaUpdatedAt   DateTime?
+  /// Modo interactivo activo en la sala (persistido para que los usuarios que
+  /// entran después vean la actividad en curso): 'standard' | 'voice' | 'roleplay' | 'screening'.
+  currentMode     String    @default("standard")
   host         User              @relation("RoomHost", fields: [hostId], references: [id], onDelete: Cascade)
   status       RoomStatus        @default(ACTIVE)
   access       RoomAccess        @default(PUBLIC)

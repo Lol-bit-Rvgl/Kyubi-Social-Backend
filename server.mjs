@@ -24,14 +24,34 @@ const dev = process.env.NODE_ENV !== 'production';
 const port = parseInt(process.env.PORT || '3000', 10);
 const hostname = '0.0.0.0';
 
-// ── CORS estricto (implementación compartida en src/lib/cors.mjs) ────────────
-// Única fuente de verdad para HTTP y Socket.IO: produccion exige CORS_ORIGINS
-// explícito (sin comodín `*`); desarrollo añade orígenes locales.
-import { resolveAllowedOrigins, originIsAllowed as isOriginAllowed } from './src/lib/cors.mjs';
-const allowedOrigins = resolveAllowedOrigins();
+// ── CORS estricto (incrustado en server.mjs) ──────────────────────────────────
+// Antes vivía en src/lib/cors.mjs, pero server.mjs corre directo en Node ESM y
+// en el contenedor de producción solo se copian archivos raíz (server.mjs),
+// por lo que importar './src/lib/cors.mjs' fallaba con ERR_MODULE_NOT_FOUND.
+// Reglas:
+//  - Producción: SOLO los orígenes de CORS_ORIGINS (sin comodín `*`).
+//  - Desarrollo: CORS_ORIGINS + orígenes locales estándar.
+//  - Peticiones sin cabecera `Origin` (curl, same-origin, móvil) se permiten:
+//    CORS solo regula el acceso entre orígenes del navegador.
+const LOCAL_ORIGINS = [
+  'http://localhost',
+  'http://localhost:3000',
+  'http://localhost:8080',
+];
+
+const configuredOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const isDevEnv = process.env.NODE_ENV !== 'production';
+const allowedOrigins = Array.from(
+  new Set([...(isDevEnv ? LOCAL_ORIGINS : []), ...configuredOrigins]),
+);
 
 function originIsAllowed(origin) {
-  return isOriginAllowed(origin, allowedOrigins);
+  if (!origin) return true; // peticiones no-CORS (mismo servidor, curl, apps nativas)
+  return allowedOrigins.includes(origin);
 }
 
 const app = next({ dev, hostname, port });
@@ -65,8 +85,8 @@ const server = createServer(async (req, res) => {
   res.setHeader('x-request-id', requestId);
 
   // ───────────────────────────────────────────────────────────────────────────
-  // CORS HTTP real (implementación compartida en src/lib/cors.mjs; aquí se
-  // aplica a nivel de servidor para API HTTP y el handshake de Socket.IO).
+  // CORS HTTP real (lógica incrustada arriba en server.mjs; aquí se aplica a
+  // nivel de servidor para API HTTP y el handshake de Socket.IO).
   // ───────────────────────────────────────────────────────────────────────────
   const origin = req.headers.origin;
   const allowed = Boolean(origin) && allowedOrigins.includes(origin);

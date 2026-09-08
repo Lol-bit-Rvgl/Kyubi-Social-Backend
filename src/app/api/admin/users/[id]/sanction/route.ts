@@ -1,12 +1,14 @@
 import { z } from 'zod';
-import { requireStaffRole, assertCanTargetUser, writeModerationLog, emitUserSanctioned } from '@/lib/admin';
+import { requireStaffRole, assertCanTargetUser, emitUserSanctioned } from '@/lib/admin';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
+import { createBan, createMute } from '@/lib/moderation';
 
 const sanctionSchema = z.object({
   action: z.enum(['WARN', 'MUTE', 'SUSPEND', 'BAN']),
   reason: z.string().trim().min(3, 'La razón debe tener al menos 3 caracteres'),
-  durationHours: z.number().int().positive().optional(),
+  // Tope de 1 año para evitar duraciones absurdas (p.ej. 10^9 horas).
+  durationHours: z.number().int().positive().max(24 * 365).optional(),
   notes: z.string().trim().optional(),
 });
 
@@ -17,8 +19,10 @@ export const POST = withErrorHandling(async (request: Request, context: RouteCon
   if (auth instanceof Response) return auth;
 
   const { id: targetUserId } = await context.params;
-  const body = await request.json();
-  const data = sanctionSchema.parse(body);
+  const body = await request.json().catch(() => null);
+  const parsed = sanctionSchema.safeParse(body);
+  if (!parsed.success) return fail('Datos de sanción inválidos', 400);
+  const data = parsed.data;
 
   // Check if target user exists
   const targetUser = await prisma.user.findUnique({ where: { id: targetUserId } });
@@ -40,46 +44,39 @@ export const POST = withErrorHandling(async (request: Request, context: RouteCon
     expiresAt = new Date(now.getTime() + data.durationHours * 60 * 60 * 1000);
   }
 
-  const finalMetadata = {
+  const auditMetadata = {
     ...data.notes ? { adminNotes: data.notes } : {},
-    durationHours: data.durationHours,
+    durationHours: data.durationHours ?? null,
     previousRole: targetUser.role,
+    targetUserId,
   };
 
   await prisma.$transaction(async (tx) => {
     switch (data.action) {
       case 'WARN': {
         // Just log the warning
-        await writeModerationLog(tx, {
-          moderatorId: auth.userId,
-          action: 'WARN',
-          targetType: 'USER',
-          targetId: targetUserId,
-          targetUserId,
-          reason: data.reason,
-          metadata: finalMetadata,
+        await tx.moderationLog.create({
+          data: {
+            moderatorId: auth.userId,
+            action: 'WARN',
+            targetType: 'USER',
+            targetId: targetUserId,
+            targetUserId,
+            reason: data.reason,
+            metadata: auditMetadata,
+          },
         });
         break;
       }
 
       case 'MUTE': {
-        // Create Mute record
-        await tx.mute.create({
-          data: {
-            userId: targetUserId,
-            moderatorId: auth.userId,
-            reason: data.reason,
-            expiresAt,
-          },
-        });
-        await writeModerationLog(tx, {
+        // Reusa createMute: revoca mutes activos previos + crea el nuevo + log.
+        await createMute(tx, {
+          userId: targetUserId,
           moderatorId: auth.userId,
-          action: 'MUTE_USER',
-          targetType: 'USER',
-          targetId: targetUserId,
-          targetUserId,
           reason: data.reason,
-          metadata: { ...finalMetadata, expiresAt: expiresAt?.toISOString() },
+          expiresAt,
+          metadata: auditMetadata,
         });
         break;
       }
@@ -93,27 +90,28 @@ export const POST = withErrorHandling(async (request: Request, context: RouteCon
             suspendedUntil: expiresAt,
           },
         });
-        await writeModerationLog(tx, {
-          moderatorId: auth.userId,
-          action: 'SUSPEND_USER',
-          targetType: 'USER',
-          targetId: targetUserId,
-          targetUserId,
-          reason: data.reason,
-          metadata: { ...finalMetadata, expiresAt: expiresAt?.toISOString() },
+        await tx.moderationLog.create({
+          data: {
+            moderatorId: auth.userId,
+            action: 'SUSPEND_USER',
+            targetType: 'USER',
+            targetId: targetUserId,
+            targetUserId,
+            reason: data.reason,
+            metadata: { ...auditMetadata, expiresAt: expiresAt?.toISOString() ?? null },
+          },
         });
         break;
       }
 
       case 'BAN': {
-        // Create Ban record
-        await tx.ban.create({
-          data: {
-            userId: targetUserId,
-            moderatorId: auth.userId,
-            reason: data.reason,
-            expiresAt,
-          },
+        // Reusa createBan: revoca bans activos previos + crea el nuevo + log.
+        const ban = await createBan(tx, {
+          userId: targetUserId,
+          moderatorId: auth.userId,
+          reason: data.reason,
+          expiresAt,
+          metadata: { ...auditMetadata, permanent: !expiresAt },
         });
         // Mark as suspended if permanent ban
         if (!expiresAt) {
@@ -122,26 +120,19 @@ export const POST = withErrorHandling(async (request: Request, context: RouteCon
             data: { isSuspended: true },
           });
         }
-        await writeModerationLog(tx, {
-          moderatorId: auth.userId,
-          action: 'BAN_USER',
-          targetType: 'USER',
-          targetId: targetUserId,
-          targetUserId,
-          reason: data.reason,
-          metadata: { ...finalMetadata, expiresAt: expiresAt?.toISOString(), permanent: !expiresAt },
-        });
+        void ban;
         break;
       }
     }
+  });
 
-    // Emit Socket.IO event for real-time notification
-    emitUserSanctioned(targetUserId, {
-      action: data.action,
-      reason: data.reason,
-      expiresAt,
-      moderatorId: auth.userId,
-    });
+  // Emitir SOLO tras commit exitoso: si la tx falla, no se notifica una
+  // sanción que no existe.
+  emitUserSanctioned(targetUserId, {
+    action: data.action,
+    reason: data.reason,
+    expiresAt,
+    moderatorId: auth.userId,
   });
 
   return ok({ success: true, action: data.action, targetUserId });

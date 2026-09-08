@@ -28,3 +28,10 @@ export function emitToSala(roomId: string, event: string, payload: unknown) {
   if (!io) return;
   io.to(`sala:${roomId}`).emit(event, payload);
 }
+
+/** Emite a un room arbitrario (p. ej. canales globales como `moderation:feed`). */
+export function emitToRoom(room: string, event: string, payload: unknown) {
+  const io = getSocketIO();
+  if (!io) return;
+  io.to(room).emit(event, payload);
+}

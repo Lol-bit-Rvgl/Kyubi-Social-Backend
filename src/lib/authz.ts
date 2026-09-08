@@ -2,7 +2,7 @@ import { UserRole } from '@prisma/client';
 import { requireSession, type Session } from './auth';
 import { fail } from './http';
 import { prisma } from './prisma';
-import { getActiveBan, getActiveMute } from './moderation';
+import { getActiveMute, getBlockingSanction } from './moderation';
 
 /**
  * Authorization layer.
@@ -18,7 +18,8 @@ import { getActiveBan, getActiveMute } from './moderation';
 
 export type AuthUser = Session & { role: UserRole };
 
-const ROLE_RANK: Record<UserRole, number> = {
+/** Jerarquía de roles — única fuente de verdad para todo el backend. */
+export const ROLE_RANK: Record<UserRole, number> = {
   USER: 0,
   MODERATOR: 1,
   ADMIN: 2,
@@ -41,8 +42,15 @@ export async function requireUser(request: Request): Promise<Response | AuthUser
     select: authUserSelect,
   });
   if (!user) return fail('Usuario no encontrado', 404);
-  const ban = await getActiveBan(user.id);
-  if (ban) return fail('Tu cuenta ha sido suspendida', 403);
+  const sanction = await getBlockingSanction(user.id);
+  if (sanction) {
+    return fail(
+      sanction.kind === 'SUSPEND' && sanction.until
+        ? `Tu cuenta está suspendida hasta ${sanction.until.toISOString()}`
+        : 'Tu cuenta ha sido suspendida',
+      403,
+    );
+  }
   return { ...session, role: user.role };
 }
 
@@ -73,8 +81,15 @@ export function requireOwner(request: Request) {
 export async function assertCanCreateContent(request: Request): Promise<Response | Session> {
   const session = await requireSession(request);
   if (!session) return fail('No autorizado', 401);
-  const ban = await getActiveBan(session.userId);
-  if (ban) return fail('Tu cuenta ha sido suspendida', 403);
+  const sanction = await getBlockingSanction(session.userId);
+  if (sanction) {
+    return fail(
+      sanction.kind === 'SUSPEND' && sanction.until
+        ? `Tu cuenta está suspendida hasta ${sanction.until.toISOString()}`
+        : 'Tu cuenta ha sido suspendida',
+      403,
+    );
+  }
   const mute = await getActiveMute(session.userId);
   if (mute) return fail('Estás silenciado y no puedes publicar contenido', 403);
   return session;

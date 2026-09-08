@@ -4,20 +4,22 @@ import { fail, ok, withErrorHandling } from '@/lib/http';
 import { postFullInclude } from '@/lib/posts';
 import { prisma } from '@/lib/prisma';
 import { serializePost } from '@/lib/serialize';
+import { optionalSafeHttpUrl, safeHttpUrl } from '@/lib/validation';
 
 const createSchema = z.object({
   type: z.string().max(30).optional(),
   title: z.string().trim().min(1).max(300),
   body: z.string().trim().min(1).max(10000),
   visibility: z.enum(['PUBLIC', 'FOLLOWERS', 'PRIVATE', 'CIRCLE', 'PRIVATE_LINK']).default('PUBLIC'),
-  coverImageUrl: z.string().nullable().optional(),
-  bgImageUrl: z.string().nullable().optional(),
+  // URLs externas sanitizadas: solo http(s), se rechaza javascript:/data:/etc.
+  coverImageUrl: optionalSafeHttpUrl,
+  bgImageUrl: optionalSafeHttpUrl,
   bgOverlay: z.number().min(0).max(1).optional(),
   bgBlur: z.boolean().optional(),
-  audioUrl: z.string().nullable().optional(),
-  mediaUrls: z.array(z.string()).optional(),
-  tags: z.array(z.string().max(40)).optional(),
-  genres: z.array(z.string().max(40)).optional(),
+  audioUrl: optionalSafeHttpUrl,
+  mediaUrls: z.array(safeHttpUrl).max(10).optional(),
+  tags: z.array(z.string().trim().max(30)).max(10).optional(),
+  genres: z.array(z.string().trim().max(40)).max(10).optional(),
   chapterMode: z.boolean().optional(),
   chapterNumber: z.number().int().optional(),
   fontFamily: z.string().nullable().optional(),

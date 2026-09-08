@@ -2,12 +2,14 @@ import { z } from 'zod';
 import { requireSession } from '@/lib/auth';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
+import { optionalSafeHttpUrl } from '@/lib/validation';
 
+// `onboardingCompleted` NO es editable aquí: solo se completa vía
+// POST /users/onboarding (server-driven). El cliente no puede forzarlo.
 const editable = z.object({
   displayName: z.string().min(1).max(80).optional(),
   bio: z.string().max(500).nullable().optional(),
-  avatarUrl: z.string().url().nullable().optional(),
-  onboardingCompleted: z.boolean().optional(),
+  avatarUrl: optionalSafeHttpUrl,
 });
 
 const meSelect = {

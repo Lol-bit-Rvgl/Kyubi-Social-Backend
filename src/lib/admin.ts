@@ -1,8 +1,13 @@
-import { UserRole, Prisma } from '@prisma/client';
-import { requireUser, type AuthUser } from './authz';
+import { UserRole, ModerationAction, Prisma } from '@prisma/client';
+import { requireUser, hasRoleAtLeast, ROLE_RANK, type AuthUser } from './authz';
 import { fail } from './http';
 import { prisma } from './prisma';
-import { emitToUser } from './socketio';
+import { emitToUser, emitToRoom } from './socketio';
+
+/** Acciones válidas del enum `ModerationAction` (validación runtime sin `as any`). */
+const VALID_MODERATION_ACTIONS: ReadonlySet<string> = new Set(
+  Object.values(ModerationAction)
+);
 
 /**
  * Require the caller to be at least MODERATOR (or higher).
@@ -19,24 +24,13 @@ export async function requireStaffRole(
   const auth = await requireUser(request);
   if (auth instanceof Response) return auth;
 
-  const allowedRoles: UserRole[] = Array.isArray(minRole) ? minRole : [minRole, 'MODERATOR', 'ADMIN', 'OWNER'];
-  
-  // Check if user role is in the allowed list
-  // For simpler check: if minRole is an array, user.role must be in it
-  // If minRole is single, user must be at least that level
-  const roleRank: Record<UserRole, number> = {
-    USER: 0,
-    MODERATOR: 1,
-    ADMIN: 2,
-    OWNER: 3,
-  };
+  // Jerarquía única (ROLE_RANK/hasRoleAtLeast de authz.ts): con una lista se
+  // exige el rango del rol más bajo de la lista; con un rol, ese mismo rango.
+  const minRankedRole: UserRole = Array.isArray(minRole)
+    ? minRole.reduce((a, b) => (ROLE_RANK[b] < ROLE_RANK[a] ? b : a))
+    : minRole;
 
-  const userRank = roleRank[auth.role];
-  const minRank = Array.isArray(minRole) 
-    ? Math.min(...minRole.map(r => roleRank[r]))
-    : roleRank[minRole];
-
-  if (userRank < minRank) {
+  if (!hasRoleAtLeast(auth.role, minRankedRole)) {
     return fail('Permisos insuficientes. Se requiere ser miembro del staff.', 403);
   }
 
@@ -52,13 +46,6 @@ export function requireAdminRole(request: Request) {
 export function requireOwnerRole(request: Request) {
   return requireStaffRole(request, 'OWNER');
 }
-
-const ROLE_RANK: Record<UserRole, number> = {
-  USER: 0,
-  MODERATOR: 1,
-  ADMIN: 2,
-  OWNER: 3,
-};
 
 /**
  * Jerarquía de objetivos: un staff no puede sancionar/alterar a un usuario
@@ -106,10 +93,15 @@ export async function writeModerationLog(
     metadata?: Record<string, unknown> | null;
   }
 ) {
+  // Validación runtime explícita contra el enum de Prisma en lugar de
+  // `action as any`, para no perder type-safety ni registrar basura en auditoría.
+  if (!VALID_MODERATION_ACTIONS.has(args.action)) {
+    throw new Error(`MODERATION_ACTION_INVALID:${args.action}`);
+  }
   return db.moderationLog.create({
     data: {
       moderatorId: args.moderatorId,
-      action: args.action as any,
+      action: args.action as ModerationAction,
       targetType: args.targetType,
       targetId: args.targetId,
       targetUserId: args.targetUserId ?? null,
@@ -150,9 +142,10 @@ export function emitPostModeration(
   postId: string,
   payload: { action: string; reason?: string; moderatorId: string }
 ) {
-  // For feed-wide updates, we could emit to a general room or specific channels
-  // For now, emit to a global moderation channel
-  emitToUser('moderation:feed', event, {
+  // Es un evento global de feed: emitir a un ROOM del servidor (broadcast a
+  // todos los sockets suscritos), no a un "usuario" individual como hacía
+  // `emitToUser('moderation:feed', ...)`.
+  emitToRoom('moderation:feed', event, {
     postId,
     action: payload.action,
     reason: payload.reason,

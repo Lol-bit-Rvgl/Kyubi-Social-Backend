@@ -42,7 +42,7 @@ export const POST = withErrorHandling(async (request: Request) => {
 
     await writeModerationLog(tx, {
       moderatorId: auth.userId,
-      action: 'DELETE_CONTENT',
+      action: 'DELETE_POST',
       targetType: 'POST',
       targetId: data.authorId || 'bulk',
       reason: data.reason,
@@ -57,7 +57,7 @@ export const POST = withErrorHandling(async (request: Request) => {
 
   // Emit event for feed update
   emitPostModeration('post:hidden', 'bulk', {
-    action: 'DELETE_CONTENT',
+    action: 'DELETE_POST',
     reason: data.reason,
     moderatorId: auth.userId,
   });

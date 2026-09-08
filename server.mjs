@@ -1,7 +1,9 @@
 import { createServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import next from 'next';
 import { Server as SocketIOServer } from 'socket.io';
 import { jwtVerify } from 'jose';
+import { RoomServiceClient } from 'livekit-server-sdk';
 
 try {
   if (typeof process.loadEnvFile === 'function') {
@@ -22,34 +24,27 @@ const dev = process.env.NODE_ENV !== 'production';
 const port = parseInt(process.env.PORT || '3000', 10);
 const hostname = '0.0.0.0';
 
-// ── CORS estricto ─────────────────────────────────────────────────────────────
-// Producción: exige CORS_ORIGINS explícito y valida contra él (sin comodín `*`).
-// Desarrollo: permite localhost y orígenes locales además de CORS_ORIGINS.
-const configuredOrigins = (process.env.CORS_ORIGINS || '')
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
-
-function resolveAllowedOrigins() {
-  if (!dev) {
-    return configuredOrigins.length ? configuredOrigins : [];
-  }
-  const local = ['http://localhost', 'http://localhost:3000', 'http://localhost:8080'];
-  return Array.from(new Set([...local, ...configuredOrigins]));
-}
+// ── CORS estricto (implementación compartida en src/lib/cors.mjs) ────────────
+// Única fuente de verdad para HTTP y Socket.IO: produccion exige CORS_ORIGINS
+// explícito (sin comodín `*`); desarrollo añade orígenes locales.
+import { resolveAllowedOrigins, originIsAllowed as isOriginAllowed } from './src/lib/cors.mjs';
 const allowedOrigins = resolveAllowedOrigins();
 
 function originIsAllowed(origin) {
-  if (!origin) return true; // peticiones no-CORS (mismo servidor, curl, ...)
-  return allowedOrigins.includes(origin);
+  return isOriginAllowed(origin, allowedOrigins);
 }
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 const rawSecret = process.env.JWT_SECRET;
+const JWT_PLACEHOLDERS = ['replace-with-a-random-32-byte-secret', 'build-time-placeholder-do-not-use-in-production'];
 if (!rawSecret || rawSecret.trim().length < 32) {
   throw new Error('FATAL: JWT_SECRET environment variable is missing or too short.');
+}
+if (!dev && JWT_PLACEHOLDERS.includes(rawSecret.trim())) {
+  console.error('FATAL: JWT_SECRET sigue teniendo el valor placeholder. Genera un secreto real antes de arrancar en producción.');
+  process.exit(1);
 }
 const secret = new TextEncoder().encode(rawSecret);
 
@@ -61,9 +56,17 @@ try {
 }
 
 const server = createServer(async (req, res) => {
+  // ── Request tracking ────────────────────────────────────────────────────────
+  // Reutiliza `x-request-id` entrante (proxy de confianza) o genera uno nuevo.
+  // Va de vuelta al cliente en todas las respuestas y en los logs de error.
+  const requestId =
+    (typeof req.headers['x-request-id'] === 'string' && req.headers['x-request-id']) ||
+    randomUUID();
+  res.setHeader('x-request-id', requestId);
+
   // ───────────────────────────────────────────────────────────────────────────
-  // CORS HTTP real (hasta ahora `originIsAllowed` solo se usaba en el
-  // handshake de Socket.IO, dejando la API HTTP sin control de origen).
+  // CORS HTTP real (implementación compartida en src/lib/cors.mjs; aquí se
+  // aplica a nivel de servidor para API HTTP y el handshake de Socket.IO).
   // ───────────────────────────────────────────────────────────────────────────
   const origin = req.headers.origin;
   const allowed = Boolean(origin) && allowedOrigins.includes(origin);
@@ -98,10 +101,12 @@ const server = createServer(async (req, res) => {
   try {
     await handle(req, res);
   } catch (err) {
-    console.error('[server] request handler error:', err);
+    console.error(
+      `[ERROR] [requestId: ${requestId}] [${req.method} ${req.url}]: ${err instanceof Error ? err.message : String(err)}`,
+    );
     if (!res.headersSent) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ message: 'Error interno del servidor' }));
+      res.end(JSON.stringify({ error: 'Internal Server Error', requestId }));
     }
   }
 });
@@ -463,6 +468,123 @@ async function handleCinemaAction(socket, payload) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Modos de sala y moderación de voz (Host / Co-Host).
+// `room:mode-change`    → valida el rol, reenvía `room:mode_changed` a la sala
+//                          para que los clientes muestren el toast en vivo.
+// `room:voice-moderation`→ mute/unmute/kick sobre la sala LiveKit `sala_<id>`
+//                          y reenvía `room:voice_moderated` a `sala:<id>`.
+// ─────────────────────────────────────────────────────────────────────────────
+const ROOM_MODES = new Set(['standard', 'voice', 'roleplay', 'screening']);
+const VOICE_MOD_ACTIONS = new Set(['mute', 'unmute', 'kick']);
+const MANAGEABLE_ROLES = new Set([
+  'HOST',
+  'CO_HOST',
+  'ADMIN',
+  'OWNER',
+  'CO_ADMIN',
+  'COADMIN',
+  'MODERATOR',
+]);
+
+function getLiveKitRoomService() {
+  const url = process.env.LIVEKIT_URL;
+  const key = process.env.LIVEKIT_API_KEY;
+  const secret = process.env.LIVEKIT_API_SECRET;
+  if (!url || !key || !secret) return null;
+  return new RoomServiceClient(url, key, secret);
+}
+
+async function canManageSala(roomId, userId) {
+  const prisma = await matchPrisma();
+  const [room, participant] = await Promise.all([
+    prisma.room.findUnique({
+      where: { id: roomId },
+      select: { id: true, status: true, hostId: true },
+    }),
+    prisma.roomParticipant.findUnique({
+      where: { roomId_userId: { roomId, userId } },
+      select: { role: true },
+    }),
+  ]);
+  if (!room || room.status !== 'ACTIVE') return false;
+  if (room.hostId === userId) return true;
+  return Boolean(participant && MANAGEABLE_ROLES.has(participant.role));
+}
+
+const SOCKET_ROOM_MODES = ROOM_MODES;
+
+async function handleRoomModeChange(socket, payload) {
+  const userId = socket.data.userId;
+  if (!userId || !payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+
+  const roomId = s(payload.roomId, 100) ?? '';
+  const mode = s(payload.mode, 32) ?? '';
+  if (!roomId || !SOCKET_ROOM_MODES.has(mode)) return;
+
+  try {
+    if (!(await canManageSala(roomId, userId))) return;
+    const actor = await fetchPublicUser(userId, socket.data.username || 'Moderador');
+    io.to(`sala:${roomId}`).emit('room:mode_changed', {
+      roomId,
+      mode,
+      actorId: userId,
+      actorName: actor.displayName || actor.username || '',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[room:mode] change failed:', err.message);
+  }
+}
+
+async function handleRoomVoiceModeration(socket, payload) {
+  const userId = socket.data.userId;
+  if (!userId || !payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+
+  const roomId = s(payload.roomId, 100) ?? '';
+  const action = s(payload.action, 16) ?? '';
+  const targetUserId = s(payload.targetUserId, 100) ?? '';
+  if (!roomId || !VOICE_MOD_ACTIONS.has(action) || !targetUserId) return;
+
+  try {
+    if (!(await canManageSala(roomId, userId))) return;
+    if (action === 'kick' && targetUserId === userId) return;
+
+    const actor = await fetchPublicUser(userId, socket.data.username || 'Moderador');
+    const target = await fetchPublicUser(targetUserId, payload.targetUsername || '');
+
+    // Aplicación real sobre el canal LiveKit (best effort: si LiveKit no está
+    // configurado, el evento se reenvía igualmente para que todos actualicen UI).
+    const service = getLiveKitRoomService();
+    if (service) {
+      const lkRoom = `sala_${roomId}`;
+      try {
+        if (action === 'kick') {
+          await service.removeParticipant(lkRoom, targetUserId);
+        } else {
+          await service.updateParticipant(lkRoom, targetUserId, undefined, {
+            canPublish: action === 'unmute',
+          });
+        }
+      } catch (err) {
+        console.error('[room:voice] livekit moderation failed:', err.message);
+      }
+    }
+
+    io.to(`sala:${roomId}`).emit('room:voice_moderated', {
+      roomId,
+      action,
+      targetUserId,
+      targetName: target.displayName || target.username || '',
+      actorId: userId,
+      actorName: actor.displayName || actor.username || '',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[room:voice] moderation failed:', err.message);
+  }
+}
+
 io.use((socket, nextFn) => {
   const auth = socket.handshake.auth ?? {};
   const header = socket.handshake.headers?.authorization ?? '';
@@ -590,6 +712,15 @@ io.on('connection', (socket) => {
   // Sala de Cine sincronizada: acciones del host → persist + broadcast.
   socket.on('cinema:action', (payload) => {
     handleCinemaAction(socket, payload);
+  });
+
+  // Cambio de modo de sala (voice / roleplay / screening / standard) y
+  // moderación del canal de voz (mute / unmute / kick) → broadcast en vivo.
+  socket.on('room:mode-change', (payload) => {
+    handleRoomModeChange(socket, payload);
+  });
+  socket.on('room:voice-moderation', (payload) => {
+    handleRoomVoiceModeration(socket, payload);
   });
 
   socket.on('disconnect', () => {

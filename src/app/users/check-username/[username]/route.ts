@@ -10,7 +10,7 @@ import { createRateLimiter } from '@/lib/rate-limit';
 const limiter = createRateLimiter({ windowMs: 15 * 60_000, max: 60 });
 
 export const GET = withErrorHandling(async (request: Request, { params }: { params: Promise<{ username: string }> }) => {
-  if (!limiter(clientIp(request))) return fail('Demasiadas peticiones', 429);
+  if (!(await limiter(clientIp(request)))) return fail('Demasiadas peticiones', 429);
   const { username } = await params;
   const existing = await prisma.user.findUnique({ where: { username }, select: { id: true } });
   return ok({

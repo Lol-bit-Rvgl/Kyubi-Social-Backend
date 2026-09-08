@@ -13,7 +13,7 @@ export const POST = withErrorHandling(async (request: Request) => {
   if (!session) return fail('No autorizado', 401);
 
   // Tras autenticar: el límite es por IP y la operación es sensible.
-  if (!limiter(clientIp(request))) return fail('Demasiadas peticiones, inténtalo más tarde', 429);
+  if (!(await limiter(clientIp(request)))) return fail('Demasiadas peticiones, inténtalo más tarde', 429);
 
   const body = await request.json().catch(() => null);
   const parsed = input.safeParse(body);

@@ -9,7 +9,7 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   // Bloquea usuarios baneados/silenciados: no solo dependemos del JWT (15 min).
   const session = await assertCanCreateContent(request);
   if (session instanceof Response) return session;
-  if (!limiter(`upload:${session.userId}`)) {
+  if (!(await limiter(`upload:${session.userId}`))) {
     return fail('Demasiadas subidas, inténtalo más tarde', 429);
   }
   const { kind } = await params;

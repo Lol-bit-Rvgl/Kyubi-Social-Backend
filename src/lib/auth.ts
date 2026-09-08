@@ -7,6 +7,12 @@ import { getActiveBan } from './moderation';
 
 const BUILD_SECRET_PLACEHOLDER = 'build-time-placeholder-do-not-use-in-production';
 
+/** Placeholders conocidos que NUNCA deben firmar tokens en producción. */
+const JWT_SECRET_DENYLIST = [
+  'replace-with-a-random-32-byte-secret',
+  BUILD_SECRET_PLACEHOLDER,
+];
+
 function getSecret(): Uint8Array {
   const rawSecret = process.env.JWT_SECRET;
   if (!rawSecret || rawSecret.length < 32) {
@@ -14,6 +20,12 @@ function getSecret(): Uint8Array {
       return new TextEncoder().encode(BUILD_SECRET_PLACEHOLDER);
     }
     throw new Error('JWT_SECRET must be set and contain at least 32 characters');
+  }
+  if (
+    process.env.NODE_ENV === 'production' &&
+    JWT_SECRET_DENYLIST.includes(rawSecret.trim())
+  ) {
+    throw new Error('JWT_SECRET no puede ser el valor placeholder en producción');
   }
   return new TextEncoder().encode(rawSecret);
 }

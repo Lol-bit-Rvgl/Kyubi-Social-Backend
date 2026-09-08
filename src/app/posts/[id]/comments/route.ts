@@ -6,6 +6,7 @@ import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { notify, notifyMentions } from '@/lib/notifications';
 import { reactionKey, serializeComment, type ReactionKey } from '@/lib/serialize';
+import { optionalSafeHttpUrl } from '@/lib/validation';
 
 const commentInclude = {
   author: true,
@@ -70,8 +71,9 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
 const createSchema = z.object({
   body: z.string().trim().min(1).max(4000),
   parentId: z.string().nullable().optional(),
-  mediaUrl: z.string().nullable().optional(),
-  mediaType: z.string().nullable().optional(),
+  // Media sanitizada: URL solo http(s) y tipo acotado a un enum explícito.
+  mediaUrl: optionalSafeHttpUrl,
+  mediaType: z.enum(['IMAGE', 'AUDIO', 'GIF']).nullable().optional(),
 });
 
 export const POST = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
@@ -89,6 +91,15 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   const post = await prisma.post.findUnique({ where: { id }, select: { authorId: true, allowComments: true } });
   if (!post) return fail('Publicación no encontrada', 404);
   if (post.allowComments === false) return fail('Los comentarios están deshabilitados', 403);
+
+  // Integridad: el comentario padre (si hay respuesta) debe pertenecer a ESTE post.
+  if (body.data.parentId) {
+    const parent = await prisma.comment.findFirst({
+      where: { id: body.data.parentId, postId: id },
+      select: { id: true },
+    });
+    if (!parent) return fail('El comentario padre no pertenece a esta publicación', 400);
+  }
 
   const comment = await prisma.comment.create({
     data: {

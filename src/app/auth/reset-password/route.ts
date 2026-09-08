@@ -11,7 +11,7 @@ const input = z.object({
 const limiter = createRateLimiter({ windowMs: 15 * 60_000, max: 10 });
 
 export const POST = withErrorHandling(async (request: Request) => {
-  if (!limiter(clientIp(request))) return fail('Demasiados intentos, inténtalo más tarde', 429);
+  if (!(await limiter(clientIp(request)))) return fail('Demasiados intentos, inténtalo más tarde', 429);
 
   const body = input.safeParse(await request.json().catch(() => null));
   if (!body.success) return fail('Token o contraseña inválidos', 400);

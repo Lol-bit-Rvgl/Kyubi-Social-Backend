@@ -4,12 +4,17 @@ import { requireSession } from '@/lib/auth';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { meSelect, serializeMe } from '@/lib/me';
 import { prisma } from '@/lib/prisma';
+import { optionalSafeHttpUrl } from '@/lib/validation';
 
+// `onboardingCompleted` NO es editable aquí: solo se completa vía
+// POST /users/onboarding (server-driven). El cliente no puede forzarlo.
+// Los campos URL usan `safeHttpUrl` para bloquear esquemas como
+// `javascript:` o `data:` (XSS).
 const editable = z.object({
   displayName: z.string().min(1).max(80).optional(),
   bio: z.string().max(500).nullable().optional(),
-  avatarUrl: z.string().nullable().optional(),
-  bannerUrl: z.string().nullable().optional(),
+  avatarUrl: optionalSafeHttpUrl,
+  bannerUrl: optionalSafeHttpUrl,
   usernameColor: z.string().nullable().optional(),
   avatarFrame: z.string().nullable().optional(),
   gender: z.string().nullable().optional(),
@@ -17,8 +22,7 @@ const editable = z.object({
   stickers: z.array(z.string()).optional(),
   interests: z.array(z.string()).optional(),
   socialLinks: z.record(z.unknown()).optional(),
-  voiceBioUrl: z.string().nullable().optional(),
-  onboardingCompleted: z.boolean().optional(),
+  voiceBioUrl: optionalSafeHttpUrl,
 });
 
 export const GET = withErrorHandling(async (request: Request) => {

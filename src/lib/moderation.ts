@@ -37,6 +37,39 @@ export async function getActiveMute(userId: string) {
   });
 }
 
+export type BlockingSanction = { kind: 'BAN' | 'SUSPEND'; until: Date | null };
+
+/**
+ * Bloqueo efectivo del usuario: ban activo (Ban no revocado y vigente) o
+ * suspensión vigente (User.isSuspended && (suspendedUntil == null || > now)).
+ *
+ * Se comprueba primero el Ban activo y después la suspensión del User.
+ * Si la suspensión ya expiró, auto-limpia el flag en BD para no depender de
+ * un cron externo. Devuelve null si el usuario puede operar con normalidad.
+ */
+export async function getBlockingSanction(userId: string): Promise<BlockingSanction | null> {
+  const ban = await prisma.ban.findFirst({
+    where: activeWhere(userId),
+    orderBy: { createdAt: 'desc' },
+  });
+  if (ban) return { kind: 'BAN', until: ban.expiresAt };
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isSuspended: true, suspendedUntil: true },
+  });
+  if (user?.isSuspended) {
+    if (user.suspendedUntil == null || user.suspendedUntil > now()) {
+      return { kind: 'SUSPEND', until: user.suspendedUntil };
+    }
+    // Suspensión expirada: limpiar el flag (best-effort, no bloquea el request).
+    await prisma.user
+      .update({ where: { id: userId }, data: { isSuspended: false, suspendedUntil: null } })
+      .catch(() => null);
+  }
+  return null;
+}
+
 export const moderationActorSelect = {
   id: true,
   username: true,
@@ -192,7 +225,7 @@ export async function logAction(
 /** Create (or replace) an active mute for a user. Any prior active mute is revoked first. */
 export async function createMute(
   db: Prisma.TransactionClient,
-  args: { userId: string; moderatorId: string; reason?: string | null; expiresAt?: Date | null }
+  args: { userId: string; moderatorId: string; reason?: string | null; expiresAt?: Date | null; metadata?: Record<string, string | number | boolean | null> }
 ) {
   await db.mute.updateMany({
     where: { userId: args.userId, revokedAt: null },
@@ -213,7 +246,7 @@ export async function createMute(
     targetType: 'USER',
     targetId: args.userId,
     reason: args.reason ?? null,
-    metadata: { muteId: mute.id, expiresAt: args.expiresAt ? args.expiresAt.toISOString() : null },
+    metadata: { muteId: mute.id, expiresAt: args.expiresAt ? args.expiresAt.toISOString() : null, ...args.metadata },
   });
   return mute;
 }
@@ -246,7 +279,7 @@ export async function revokeMute(
 /** Create (or replace) an active ban for a user. Any prior active ban is revoked first. */
 export async function createBan(
   db: Prisma.TransactionClient,
-  args: { userId: string; moderatorId: string; reason?: string | null; expiresAt?: Date | null }
+  args: { userId: string; moderatorId: string; reason?: string | null; expiresAt?: Date | null; metadata?: Record<string, string | number | boolean | null> }
 ) {
   await db.ban.updateMany({
     where: { userId: args.userId, revokedAt: null },
@@ -267,7 +300,7 @@ export async function createBan(
     targetType: 'USER',
     targetId: args.userId,
     reason: args.reason ?? null,
-    metadata: { banId: ban.id, expiresAt: args.expiresAt ? args.expiresAt.toISOString() : null },
+    metadata: { banId: ban.id, expiresAt: args.expiresAt ? args.expiresAt.toISOString() : null, ...args.metadata },
   });
   return ban;
 }

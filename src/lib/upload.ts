@@ -91,6 +91,72 @@ export function validateUpload(file: File, kind: string): string | null {
   return null;
 }
 
+// ── Magic bytes (sniffing real del contenido) ──────────────────────────────
+// La extensión del filename y el `Content-Type` del cliente son controlados
+// por el usuario. Para audio/vídeo (que NO pasa por `sharp`, que ya actúa de
+// validación de facto en imágenes) verificamos las firmas binarias reales del
+// buffer antes de persistir en storage.
+
+const AV_MIME_DESCRIPTIONS: Record<string, string> = {
+  'audio/mp4': 'MP4/M4A',
+  'audio/mpeg': 'MP3',
+  'audio/ogg': 'OGG',
+  'audio/wav': 'WAV',
+  'video/mp4': 'MP4',
+  'video/quicktime': 'MOV',
+};
+
+/**
+ * Intenta determinar el MIME real de un buffer a partir de sus magic bytes.
+ * Devuelve `null` si no reconoce la firma.
+ */
+export function sniffMime(bytes: Buffer): string | null {
+  if (bytes.length < 12) return null;
+
+  // MP4/MOV/M4A: bytes 4..7 == 'ftyp' (ISO BMFF). La marca en 8..11 distingue
+  // brand: 'qt  ' → QuickTime MOV; el resto (isom/mp42/M4A …) → mp4.
+  if (bytes.toString('ascii', 4, 8) === 'ftyp') {
+    const brand = bytes.toString('ascii', 8, 12);
+    if (brand.startsWith('qt')) return 'video/quicktime';
+    return 'video/mp4';
+  }
+  // MP3: cabecera ID3 o frame MPEG sync (0xFF Ex/Fx).
+  if (bytes.toString('ascii', 0, 3) === 'ID3') return 'audio/mpeg';
+  if (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) return 'audio/mpeg';
+  // OGG: 'OggS'.
+  if (bytes.toString('ascii', 0, 4) === 'OggS') return 'audio/ogg';
+  // WAV: 'RIFF' + 'WAVE' en offset 8.
+  if (
+    bytes.toString('ascii', 0, 4) === 'RIFF' &&
+    bytes.toString('ascii', 8, 12) === 'WAVE'
+  ) {
+    return 'audio/wav';
+  }
+  return null;
+}
+
+/**
+ * Verifica que el contenido de un archivo de audio/vídeo coincida con el MIME
+ * declarado/inferido. Devuelve un mensaje de error o `null` si es válido.
+ */
+export function validateMediaContent(bytes: Buffer, mime: string): string | null {
+  if (!AV_MIME_DESCRIPTIONS[mime]) return null; // solo audio/vídeo
+  const sniffed = sniffMime(bytes);
+  if (!sniffed) {
+    return `El contenido no parece un archivo ${AV_MIME_DESCRIPTIONS[mime]} válido`;
+  }
+  // Tolerancia razonable: mp4 y mov comparten contenedor ISO BMFF; un .mp4
+  // real se acepta como quicktime y viceversa.
+  const compatible =
+    sniffed === mime ||
+    (sniffed === 'video/mp4' && mime === 'video/quicktime') ||
+    (sniffed === 'video/quicktime' && mime === 'video/mp4');
+  if (!compatible) {
+    return `El contenido del archivo no coincide con el tipo ${AV_MIME_DESCRIPTIONS[mime]}`;
+  }
+  return null;
+}
+
 /** MIME que se pueden optimizar con `sharp` (se convierten a WebP). */
 const IMAGE_MIMES = new Set([
   'image/jpeg',
@@ -165,6 +231,12 @@ export async function saveUpload(file: File, kind = 'misc'): Promise<string> {
   const storage = getStorage();
   const bytes = Buffer.from(await file.arrayBuffer());
   const mime = resolveMime(file);
+
+  // Anti-bypass: verificar magic bytes reales en audio/vídeo. Un atacante
+  // puede renombrar un payload (p. ej. .html → .mp3); si el contenido no
+  // coincide con la firma binaria esperada, se rechaza.
+  const contentError = validateMediaContent(bytes, mime);
+  if (contentError) throw new Error(`UPLOAD_REJECTED:${contentError}`);
 
   let body: Uint8Array = bytes;
   let contentType = mime || 'application/octet-stream';

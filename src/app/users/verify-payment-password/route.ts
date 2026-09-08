@@ -14,7 +14,7 @@ const limiter = createRateLimiter({ windowMs: 15 * 60_000, max: 5 });
 export const POST = withErrorHandling(async (request: Request) => {
   const session = await requireSession(request);
   if (!session) return fail('No autorizado', 401);
-  if (!limiter(`verify-pin:${session.userId}`)) {
+  if (!(await limiter(`verify-pin:${session.userId}`))) {
     return fail('Demasiados intentos, inténtalo más tarde', 429);
   }
   const body = schema.safeParse(await request.json().catch(() => null));

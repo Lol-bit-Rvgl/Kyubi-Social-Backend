@@ -10,8 +10,18 @@ export function livekitConfig(): { url: string; apiKey: string; apiSecret: strin
   const url = process.env.LIVEKIT_URL;
   const apiKey = process.env.LIVEKIT_API_KEY;
   const apiSecret = process.env.LIVEKIT_API_SECRET;
-  if (!url || !apiKey || !apiSecret) return null;
-  return { url, apiKey, apiSecret };
+  const missing: string[] = [];
+  if (!url) missing.push('LIVEKIT_URL');
+  if (!apiKey) missing.push('LIVEKIT_API_KEY');
+  if (!apiSecret) missing.push('LIVEKIT_API_SECRET');
+  if (missing.length > 0) {
+    console.error(
+      `[livekit] Faltan variables de entorno: ${missing.join(', ')}. ` +
+        'El canal de voz responderá 503 hasta configurarlas en .env',
+    );
+    return null;
+  }
+  return { url: url!, apiKey: apiKey!, apiSecret: apiSecret! };
 }
 
 export function isLiveKitEnabled(): boolean {

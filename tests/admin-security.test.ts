@@ -25,7 +25,10 @@ const mockPrisma = vi.hoisted(() => {
 });
 
 vi.mock('@/lib/prisma', () => ({ prisma: mockPrisma() }));
-vi.mock('@/lib/socketio', () => ({ emitToUser: vi.fn(() => undefined) }));
+vi.mock('@/lib/socketio', () => ({
+  emitToUser: vi.fn(() => undefined),
+  emitToRoom: vi.fn(() => undefined),
+}));
 
 import { prisma } from '@/lib/prisma';
 import { POST as sanctionUser } from '@/app/api/admin/users/[id]/sanction/route';

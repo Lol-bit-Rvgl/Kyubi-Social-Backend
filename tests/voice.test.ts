@@ -8,6 +8,7 @@ const mockPrisma = vi.hoisted(() => {
     const m = {
       user: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn() },
       roomParticipant: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), delete: vi.fn(), deleteMany: vi.fn(), count: vi.fn() },
+      room: { findUnique: vi.fn() },
       ban: { findFirst: vi.fn() },
       mute: { findFirst: vi.fn() },
     };
@@ -54,7 +55,14 @@ describe('voz — tokens LiveKit', () => {
     // arranca sin ban/mute activos.
     m.ban.findFirst.mockImplementation(() => undefined);
     m.mute.findFirst.mockImplementation(() => undefined);
+    // La ruta de voz consulta la sala para verificar que existe.
+    m.room.findUnique.mockResolvedValue({ id: 'room-1' });
   });
+
+  /** Mock de la consulta de suspensión de getBlockingSanction (usuario libre). */
+  function mockUserNotSuspended() {
+    m.user.findUnique.mockResolvedValueOnce({ isSuspended: false, suspendedUntil: null, bans: [] });
+  }
 
   it('401 sin sesión en ambas rutas de token', async () => {
     const sala = await salaVoiceToken(jsonRequest('http://localhost/salas/room-1/voice/token', { method: 'POST' }), {
@@ -66,7 +74,7 @@ describe('voz — tokens LiveKit', () => {
   });
 
   describe('POST /salas/[id]/voice/token', () => {
-    it('403 si el usuario no participa en la sala', async () => {
+    it('200 aunque no figure como participante (se asume rol MEMBER)', async () => {
       const token = await tokenFor();
       m.roomParticipant.findUnique.mockResolvedValue(null);
       m.user.findUnique.mockResolvedValue({ id: 'user-1', displayName: 'User One', username: 'user_one', avatarUrl: null });
@@ -74,7 +82,9 @@ describe('voz — tokens LiveKit', () => {
       const res = await salaVoiceToken(jsonRequest('http://localhost/salas/room-1/voice/token', { method: 'POST', token }), {
         params: Promise.resolve({ id: 'room-1' }),
       });
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { token: string };
+      expect(data.token).toBe('jwt-livekit');
     });
 
     it('403 si el usuario tiene mute global activo', async () => {
@@ -128,6 +138,7 @@ describe('voz — tokens LiveKit', () => {
 
     it('404 si el destinatario no existe', async () => {
       const token = await tokenFor();
+      mockUserNotSuspended();
       m.user.findUnique.mockResolvedValueOnce(null);
       const res = await dmVoiceToken(
         jsonRequest('http://localhost/messages/voice/token', { method: 'POST', body: { targetUserId: 'ghost' }, token })
@@ -137,6 +148,7 @@ describe('voz — tokens LiveKit', () => {
 
     it('200 genera roomName canónico `dm_<idMenor>_<idMayor>`', async () => {
       const token = await tokenFor();
+      mockUserNotSuspended();
       m.user.findUnique.mockResolvedValueOnce({ id: 'user-2' });
       m.user.findUnique.mockResolvedValueOnce({ id: 'user-1', displayName: 'User One', username: 'user_one', avatarUrl: null });
 
@@ -154,6 +166,7 @@ describe('voz — tokens LiveKit', () => {
 
     it('200 ordena los ids aunque el destinatario sea alfabéticamente menor', async () => {
       const token = await tokenFor();
+      mockUserNotSuspended();
       m.user.findUnique.mockResolvedValueOnce({ id: 'aaa' });
       m.user.findUnique.mockResolvedValueOnce({ id: 'user-1', displayName: 'User One', username: 'user_one', avatarUrl: null });
 

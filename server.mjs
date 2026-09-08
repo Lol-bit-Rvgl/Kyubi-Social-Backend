@@ -383,6 +383,7 @@ async function handleSendRoomMessage(socket, payload) {
     });
 
     io.to(`sala:${roomId}`).emit('room:message', roomMessagePayload(message));
+    console.log(`[SOCKET_SERVER] Mensaje emitido a sala:${roomId}: ${body}`);
   } catch (err) {
     console.error('[room] send_room_message failed:', err.message);
   }
@@ -620,14 +621,19 @@ io.on('connection', (socket) => {
       socket.leave(`conversation:${conversationId}`);
     }
   });
-  socket.on('room:join', (roomId) => {
-    if (typeof roomId === 'string' && roomId) {
-      socket.join(`sala:${roomId}`);
+  socket.on('room:join', (data) => {
+    const parsedRoomId =
+      typeof data === 'string' ? data : (data?.roomId || data?.id);
+    if (typeof parsedRoomId === 'string' && parsedRoomId) {
+      socket.join(`sala:${parsedRoomId}`);
+      console.log(`[SOCKET_SERVER] Socket ${socket.id} (User: ${socket.data.userId}) se unió a sala:${parsedRoomId}`);
     }
   });
-  socket.on('room:leave', (roomId) => {
-    if (typeof roomId === 'string' && roomId) {
-      socket.leave(`sala:${roomId}`);
+  socket.on('room:leave', (data) => {
+    const parsedRoomId =
+      typeof data === 'string' ? data : (data?.roomId || data?.id);
+    if (typeof parsedRoomId === 'string' && parsedRoomId) {
+      socket.leave(`sala:${parsedRoomId}`);
     }
   });
   socket.on('typing', (payload) => {

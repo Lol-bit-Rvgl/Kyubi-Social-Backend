@@ -517,14 +517,24 @@ const SOCKET_ROOM_MODES = ROOM_MODES;
 
 async function handleRoomModeChange(socket, payload) {
   const userId = socket.data.userId;
-  if (!userId || !payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+  if (!userId || !payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    console.log('[MODE_DEBUG_SERVER] payload inválido o sin userId:', payload);
+    return;
+  }
 
   const roomId = s(payload.roomId, 100) ?? '';
   const mode = s(payload.mode, 32) ?? '';
-  if (!roomId || !SOCKET_ROOM_MODES.has(mode)) return;
+  if (!roomId || !SOCKET_ROOM_MODES.has(mode)) {
+    console.log(`[MODE_DEBUG_SERVER] roomId="${roomId}" o modo="${mode}" inválido (modos permitidos: ${[...SOCKET_ROOM_MODES].join(',')})`);
+    return;
+  }
 
   try {
-    if (!(await canManageSala(roomId, userId))) return;
+    const canManage = await canManageSala(roomId, userId);
+    if (!canManage) {
+      console.log(`[MODE_DEBUG_SERVER] canManageSala=false para user=${userId} en sala=${roomId}`);
+      return;
+    }
     const actor = await fetchPublicUser(userId, socket.data.username || 'Moderador');
     io.to(`sala:${roomId}`).emit('room:mode_changed', {
       roomId,
@@ -533,7 +543,7 @@ async function handleRoomModeChange(socket, payload) {
       actorName: actor.displayName || actor.username || '',
       timestamp: new Date().toISOString(),
     });
-    console.log(`[SOCKET_SERVER] Broadcast room:mode_changed enviado a sala:${roomId} con modo:${mode}`);
+    console.log(`[MODE_DEBUG_SERVER] Broadcast room:mode_changed emitido a sala:${roomId} -> ${mode}`);
   } catch (err) {
     console.error('[room:mode] change failed:', err.message);
   }

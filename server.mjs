@@ -761,7 +761,16 @@ io.on('connection', (socket) => {
   socket.on('room:mode-change', (payload) => {
     handleRoomModeChange(socket, payload);
   });
+  socket.on('room:mode_change', (payload) => {
+    handleRoomModeChange(socket, payload);
+  });
+  socket.on('room:change_mode', (payload) => {
+    handleRoomModeChange(socket, payload);
+  });
   socket.on('room:voice-moderation', (payload) => {
+    handleRoomVoiceModeration(socket, payload);
+  });
+  socket.on('room:voice_moderation', (payload) => {
     handleRoomVoiceModeration(socket, payload);
   });
 

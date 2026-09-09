@@ -443,12 +443,11 @@ async function handleCinemaAction(socket, payload) {
   }
 
   try {
-    const participant = await prisma.roomParticipant.findUnique({
-      where: { roomId_userId: { roomId, userId } },
-      select: { role: true },
-    });
-    // Regla de permisos: solo el HOST de la sala controla el cine.
-    if (!participant || participant.role !== 'HOST') return;
+    const canManage = await canManageSala(roomId, userId);
+    if (!canManage) {
+      console.log(`[CINEMA_SERVER] canManageSala=false para user=${userId} en sala=${roomId}`);
+      return;
+    }
 
     const updateData = {};
     if (action === 'LOAD') {
@@ -484,6 +483,7 @@ async function handleCinemaAction(socket, payload) {
       currentTime: currentTime,
       updatedAt: updateData.cinemaUpdatedAt.toISOString(),
     });
+    console.log(`[CINEMA_SERVER] Broadcast cinema:sync emitido a sala:${roomId} -> action=${action}`);
   } catch (err) {
     console.error('[cinema] action failed:', err.message);
   }
@@ -507,6 +507,16 @@ const MANAGEABLE_ROLES = new Set([
   'COADMIN',
   'MODERATOR',
 ]);
+
+function normalizeRoomMode(mode) {
+  if (!mode || typeof mode !== 'string') return 'standard';
+  const m = mode.trim().toLowerCase();
+  if (m === 'cinema' || m === 'screening' || m === 'cine' || m === 'movie') return 'screening';
+  if (m === 'voice' || m === 'voz' || m === 'audio') return 'voice';
+  if (m === 'roleplay' || m === 'rp' || m === 'rol') return 'roleplay';
+  if (m === 'standard' || m === 'none' || m === 'off' || m === 'chat' || m === 'default' || m === 'normal') return 'standard';
+  return 'standard';
+}
 
 function getLiveKitRoomService() {
   const url = process.env.LIVEKIT_URL;
@@ -543,9 +553,10 @@ async function handleRoomModeChange(socket, payload) {
   }
 
   const roomId = s(payload.roomId, 100) ?? '';
-  const mode = s(payload.mode, 32) ?? '';
+  const rawMode = s(payload.mode, 32) ?? '';
+  const mode = normalizeRoomMode(rawMode);
   if (!roomId || !SOCKET_ROOM_MODES.has(mode)) {
-    console.log(`[MODE_DEBUG_SERVER] roomId="${roomId}" o modo="${mode}" inválido (modos permitidos: ${[...SOCKET_ROOM_MODES].join(',')})`);
+    console.log(`[MODE_DEBUG_SERVER] roomId="${roomId}" o modo="${mode}" inválido`);
     return;
   }
 
@@ -556,9 +567,27 @@ async function handleRoomModeChange(socket, payload) {
       return;
     }
     const prisma = await matchPrisma();
-    await prisma.room.update({
+    const updateData = { currentMode: mode };
+    const videoId = s(payload.videoId, 128);
+    if (videoId) updateData.cinemaVideoId = videoId;
+    if (payload.cinemaState && typeof payload.cinemaState === 'string') {
+      updateData.cinemaState = payload.cinemaState;
+    }
+    if (typeof payload.currentTime === 'number' && Number.isFinite(payload.currentTime)) {
+      updateData.cinemaCurrentTime = payload.currentTime;
+    }
+
+    const updatedRoom = await prisma.room.update({
       where: { id: roomId },
-      data: { currentMode: mode },
+      data: updateData,
+      select: {
+        id: true,
+        currentMode: true,
+        cinemaVideoId: true,
+        cinemaState: true,
+        cinemaCurrentTime: true,
+        cinemaUpdatedAt: true,
+      },
     });
     const actor = await fetchPublicUser(userId, socket.data.username || 'Moderador');
     io.to(`sala:${roomId}`).emit('room:mode_changed', {
@@ -566,6 +595,10 @@ async function handleRoomModeChange(socket, payload) {
       mode,
       actorId: userId,
       actorName: actor.displayName || actor.username || '',
+      cinemaVideoId: updatedRoom.cinemaVideoId ?? null,
+      cinemaState: updatedRoom.cinemaState ?? 'STOPPED',
+      cinemaCurrentTime: updatedRoom.cinemaCurrentTime ?? 0,
+      cinemaUpdatedAt: updatedRoom.cinemaUpdatedAt ? updatedRoom.cinemaUpdatedAt.toISOString() : null,
       timestamp: new Date().toISOString(),
     });
     console.log(`[MODE_DEBUG_SERVER] Broadcast room:mode_changed emitido a sala:${roomId} -> ${mode}`);

@@ -586,7 +586,9 @@ async function createRoomSystemMessage(prisma, roomId, senderId, body) {
     },
     include: { sender: true },
   });
-  io.to(`sala:${roomId}`).emit('room:message', roomMessagePayload(message));
+  const payload = roomMessagePayload(message);
+  io.to(`sala:${roomId}`).emit('room:message', payload);
+  io.to(`sala:${roomId}`).emit('chat:message', payload);
   console.log(`[MODE_DEBUG_SERVER] Mensaje de sistema persistido en sala:${roomId}: ${body}`);
 }
 

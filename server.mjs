@@ -485,6 +485,7 @@ async function handleCinemaAction(socket, payload) {
       roomId,
       action: broadcastAction,
       videoId: broadcastAction === 'CLEAR' ? null : (videoId ?? null),
+      state: broadcastAction === 'CLEAR' ? 'STOPPED' : (updateData.cinemaState ?? 'STOPPED'),
       currentTime: broadcastAction === 'CLEAR' ? 0 : currentTime,
       updatedAt: updateData.cinemaUpdatedAt.toISOString(),
     });

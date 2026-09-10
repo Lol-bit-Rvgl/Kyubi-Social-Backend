@@ -264,7 +264,7 @@ async function fetchPublicUser(userId, fallbackUsername) {
 // Replica la semántica de POST /salas/:id/messages: ban/mute activos, sala
 // activa, pertenencia y broadcasting con payload estructurado.
 // ─────────────────────────────────────────────────────────────────────────────
-const ROOM_MESSAGE_TYPES = new Set(['TEXT', 'VOICE', 'IMAGE', 'POLL']);
+const ROOM_MESSAGE_TYPES = new Set(['TEXT', 'VOICE', 'IMAGE', 'POLL', 'SYSTEM']);
 
 function normalizeRoomMessageType(type) {
   return typeof type === 'string' && ROOM_MESSAGE_TYPES.has(type) ? type : 'TEXT';
@@ -545,6 +545,39 @@ async function canManageSala(roomId, userId) {
 
 const SOCKET_ROOM_MODES = ROOM_MODES;
 
+/// Modos que representan una actividad en curso (distinta del chat base).
+const ACTIVE_MODES = new Set(['voice', 'screening', 'roleplay']);
+
+/// Texto del mensaje de sistema persistente según la transición de modo.
+const MODE_SYSTEM_TEXT = {
+  voice: '[Sistema]: Chat de voz iniciado.',
+  screening: '[Sistema]: Sala de cine iniciada.',
+  roleplay: '[Sistema]: Sesión de roleplay iniciada.',
+};
+const MODE_SYSTEM_TEXT_END = {
+  voice: '[Sistema]: Chat de voz finalizado.',
+  screening: '[Sistema]: Sala de cine finalizada.',
+  roleplay: '[Sistema]: Sesión de roleplay finalizada.',
+};
+
+/// Crea y persiste un mensaje de sistema (tipo SYSTEM) en la sala y lo
+/// retransmite por el canal habitual de mensajes para que aparezca en vivo y
+/// quede en el historial para los que entren después.
+async function createRoomSystemMessage(prisma, roomId, senderId, body) {
+  const message = await prisma.roomMessage.create({
+    data: {
+      roomId,
+      senderId,
+      type: 'SYSTEM',
+      body,
+      extensions: {},
+    },
+    include: { sender: true },
+  });
+  io.to(`sala:${roomId}`).emit('room:message', roomMessagePayload(message));
+  console.log(`[MODE_DEBUG_SERVER] Mensaje de sistema persistido en sala:${roomId}: ${body}`);
+}
+
 async function handleRoomModeChange(socket, payload) {
   const userId = socket.data.userId;
   if (!userId || !payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -567,6 +600,27 @@ async function handleRoomModeChange(socket, payload) {
       return;
     }
     const prisma = await matchPrisma();
+
+    // ── Transición estricta: no se puede saltar de una actividad a otra sin
+    //    pasar primero por 'standard'.
+    const current = await prisma.room.findUnique({
+      where: { id: roomId },
+      select: { currentMode: true },
+    });
+    const previousMode = normalizeRoomMode(current?.currentMode);
+    if (ACTIVE_MODES.has(previousMode) && mode !== 'standard' && mode !== previousMode) {
+      console.log(
+        `[MODE_DEBUG_SERVER] Transición estricta rechazada: sala:${roomId} activo=${previousMode}, solicitado=${mode}`,
+      );
+      socket.emit('room:mode_rejected', {
+        roomId,
+        currentMode: previousMode,
+        requestedMode: mode,
+        reason: 'Debes finalizar la actividad actual antes de iniciar otra',
+      });
+      return;
+    }
+
     const updateData = { currentMode: mode };
     const videoId = s(payload.videoId, 128);
     if (videoId) updateData.cinemaVideoId = videoId;
@@ -601,6 +655,26 @@ async function handleRoomModeChange(socket, payload) {
       cinemaUpdatedAt: updatedRoom.cinemaUpdatedAt ? updatedRoom.cinemaUpdatedAt.toISOString() : null,
       timestamp: new Date().toISOString(),
     });
+
+    // ── Mensaje de sistema persistente (activación / fin de actividad) ──
+    if (mode === 'standard') {
+      if (ACTIVE_MODES.has(previousMode)) {
+        await createRoomSystemMessage(
+          prisma,
+          roomId,
+          userId,
+          MODE_SYSTEM_TEXT_END[previousMode] ?? '[Sistema]: Actividad finalizada.',
+        );
+      }
+    } else if (ACTIVE_MODES.has(mode)) {
+      await createRoomSystemMessage(
+        prisma,
+        roomId,
+        userId,
+        MODE_SYSTEM_TEXT[mode] ?? '[Sistema]: Actividad iniciada.',
+      );
+    }
+
     console.log(`[MODE_DEBUG_SERVER] Broadcast room:mode_changed emitido a sala:${roomId} -> ${mode}`);
   } catch (err) {
     console.error('[room:mode] change failed:', err.message);

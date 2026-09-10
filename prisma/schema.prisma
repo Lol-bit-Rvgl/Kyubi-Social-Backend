@@ -139,6 +139,7 @@ enum RoomMessageType {
   VOICE
   IMAGE
   POLL
+  SYSTEM
 }
 
 enum NotificationType {

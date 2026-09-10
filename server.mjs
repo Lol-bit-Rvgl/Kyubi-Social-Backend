@@ -414,7 +414,7 @@ async function handleSendRoomMessage(socket, payload) {
 // acciones. Se persiste estado en Room y se retransmite `cinema:sync` a la
 // sala completa para que los espectadores (read-only) sigan el reproductor.
 // ─────────────────────────────────────────────────────────────────────────────
-const CINEMA_ACTIONS = new Set(['PLAY', 'PAUSE', 'SEEK', 'LOAD', 'STOP']);
+const CINEMA_ACTIONS = new Set(['PLAY', 'PAUSE', 'SEEK', 'LOAD', 'STOP', 'CLEAR', 'REMOVE']);
 
 async function handleCinemaAction(socket, payload) {
   const userId = socket.data.userId;
@@ -455,6 +455,10 @@ async function handleCinemaAction(socket, payload) {
       updateData.cinemaVideoId = videoId;
       updateData.cinemaState = 'PLAYING';
       updateData.cinemaCurrentTime = currentTime ?? 0;
+    } else if (action === 'CLEAR' || action === 'REMOVE') {
+      updateData.cinemaVideoId = null;
+      updateData.cinemaState = 'STOPPED';
+      updateData.cinemaCurrentTime = 0;
     } else if (action === 'PLAY') {
       updateData.cinemaState = 'PLAYING';
       if (currentTime !== null) updateData.cinemaCurrentTime = currentTime;
@@ -476,14 +480,15 @@ async function handleCinemaAction(socket, payload) {
       select: { id: true },
     });
 
+    const broadcastAction = action === 'REMOVE' ? 'CLEAR' : action;
     io.to(`sala:${roomId}`).emit('cinema:sync', {
       roomId,
-      action,
-      videoId: videoId ?? null,
-      currentTime: currentTime,
+      action: broadcastAction,
+      videoId: broadcastAction === 'CLEAR' ? null : (videoId ?? null),
+      currentTime: broadcastAction === 'CLEAR' ? 0 : currentTime,
       updatedAt: updateData.cinemaUpdatedAt.toISOString(),
     });
-    console.log(`[CINEMA_SERVER] Broadcast cinema:sync emitido a sala:${roomId} -> action=${action}`);
+    console.log(`[CINEMA_SERVER] Broadcast cinema:sync emitido a sala:${roomId} -> action=${broadcastAction}`);
   } catch (err) {
     console.error('[cinema] action failed:', err.message);
   }
@@ -497,7 +502,14 @@ async function handleCinemaAction(socket, payload) {
 //                          y reenvía `room:voice_moderated` a `sala:<id>`.
 // ─────────────────────────────────────────────────────────────────────────────
 const ROOM_MODES = new Set(['standard', 'voice', 'roleplay', 'screening']);
-const VOICE_MOD_ACTIONS = new Set(['mute', 'unmute', 'kick']);
+const VOICE_MOD_ACTIONS = new Set([
+  'mute',
+  'unmute',
+  'kick',
+  'staff_only',
+  'allow_speaker',
+  'revoke_speaker',
+]);
 const MANAGEABLE_ROLES = new Set([
   'HOST',
   'CO_HOST',
@@ -686,15 +698,50 @@ async function handleRoomVoiceModeration(socket, payload) {
   if (!userId || !payload || typeof payload !== 'object' || Array.isArray(payload)) return;
 
   const roomId = s(payload.roomId, 100) ?? '';
-  const action = s(payload.action, 16) ?? '';
+  const action = s(payload.action, 32) ?? '';
   const targetUserId = s(payload.targetUserId, 100) ?? '';
-  if (!roomId || !VOICE_MOD_ACTIONS.has(action) || !targetUserId) return;
+  if (!roomId || !VOICE_MOD_ACTIONS.has(action)) return;
+  if (action !== 'staff_only' && !targetUserId) return;
 
   try {
-    if (!(await canManageSala(roomId, userId))) return;
-    if (action === 'kick' && targetUserId === userId) return;
+    if (!(await canManageSala(roomId, userId))) {
+      console.log(`[VOICE_MOD_SERVER] canManageSala=false para user=${userId} en sala=${roomId}`);
+      return;
+    }
 
     const actor = await fetchPublicUser(userId, socket.data.username || 'Moderador');
+
+    if (action === 'staff_only') {
+      const staffOnly = Boolean(payload.staffOnly);
+      io.to(`sala:${roomId}`).emit('room:voice_moderated', {
+        roomId,
+        action: 'staff_only',
+        staffOnly,
+        actorId: userId,
+        actorName: actor.displayName || actor.username || '',
+        timestamp: new Date().toISOString(),
+      });
+      console.log(`[VOICE_MOD_SERVER] Staff only=${staffOnly} emitido en sala:${roomId}`);
+      return;
+    }
+
+    if (action === 'allow_speaker' || action === 'revoke_speaker') {
+      const target = await fetchPublicUser(targetUserId, payload.targetUsername || '');
+      io.to(`sala:${roomId}`).emit('room:voice_moderated', {
+        roomId,
+        action,
+        targetUserId,
+        targetName: target.displayName || target.username || '',
+        actorId: userId,
+        actorName: actor.displayName || actor.username || '',
+        timestamp: new Date().toISOString(),
+      });
+      console.log(`[VOICE_MOD_SERVER] ${action} emitido para ${targetUserId} en sala:${roomId}`);
+      return;
+    }
+
+    if (action === 'kick' && targetUserId === userId) return;
+
     const target = await fetchPublicUser(targetUserId, payload.targetUsername || '');
 
     // Aplicación real sobre el canal LiveKit (best effort: si LiveKit no está

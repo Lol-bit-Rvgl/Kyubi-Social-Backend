@@ -17,8 +17,8 @@ import {
   X,
   Check,
 } from 'lucide-react';
-import { adminFetch } from '@/components/admin/api';
-import SanctionModal from '@/components/admin/SanctionModal';
+import { adminFetch, getCurrentAdminUser } from '@/components/admin/api';
+import SanctionModal, { type SanctionAction } from '@/components/admin/SanctionModal';
 
 interface UserTitleDto {
   id: string;
@@ -55,9 +55,20 @@ function UsersContent() {
   const toast = useToast();
 
   const [sanctionTarget, setSanctionTarget] = useState<AdminUser | null>(null);
+  const [sanctionAction, setSanctionAction] = useState<SanctionAction>('WARN');
+  const [currentRole, setCurrentRole] = useState<string | null>(null);
   const [titleTarget, setTitleTarget] = useState<AdminUser | null>(null);
   const [titleText, setTitleText] = useState('');
   const [titleColor, setTitleColor] = useState(TITLE_COLORS[0]);
+
+  useEffect(() => {
+    const adminUser = getCurrentAdminUser();
+    if (adminUser?.role) {
+      setCurrentRole(adminUser.role);
+    }
+  }, []);
+
+  const canBan = currentRole === 'ADMIN' || currentRole === 'OWNER';
 
   // Debounce search
   useEffect(() => {
@@ -291,11 +302,40 @@ function UsersContent() {
                 {/* Actions */}
                 <div className="flex gap-2 flex-wrap items-center">
                   <button
-                    onClick={() => setSanctionTarget(user)}
+                    onClick={() => {
+                      setSanctionAction('WARN');
+                      setSanctionTarget(user);
+                    }}
                     className="inline-flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-xl bg-gradient-to-r from-rose-500/80 via-pink-500/80 to-purple-600/80 hover:from-rose-500 hover:to-purple-600 text-white font-medium shadow-md shadow-rose-500/20 transition-all cursor-pointer"
                   >
                     <Gavel className="w-3.5 h-3.5" />
                     Sancionar
+                  </button>
+                  <button
+                    disabled={!canBan}
+                    onClick={() => {
+                      if (!canBan) return;
+                      setSanctionAction('BAN');
+                      setSanctionTarget(user);
+                    }}
+                    title={
+                      !canBan
+                        ? 'Solo Administradores y Owners pueden aplicar baneos'
+                        : `Bannear a @${user.username}`
+                    }
+                    className={`inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl font-medium transition-all ${
+                      !canBan
+                        ? 'bg-white/5 border border-white/5 text-slate-500 opacity-40 cursor-not-allowed'
+                        : 'bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 hover:text-white cursor-pointer shadow-sm shadow-rose-500/10'
+                    }`}
+                  >
+                    <Ban className="w-3.5 h-3.5" />
+                    <span>Banear</span>
+                    {!canBan && (
+                      <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                        Admin+
+                      </span>
+                    )}
                   </button>
                   <button
                     onClick={() => handleUnsanction(user)}
@@ -366,6 +406,8 @@ function UsersContent() {
           isOpen={!!sanctionTarget}
           onClose={() => setSanctionTarget(null)}
           onSuccess={loadUsers}
+          currentRole={currentRole ?? undefined}
+          initialAction={sanctionAction}
         />
       )}
 

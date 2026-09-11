@@ -70,7 +70,26 @@ export function getAdminToken(): string | null {
   return localStorage.getItem('kyubi_access_token');
 }
 
+export interface CurrentAdminUser {
+  id: string;
+  username: string;
+  role: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+}
+
+export function getCurrentAdminUser(): CurrentAdminUser | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const cached = localStorage.getItem('kyubi_admin_user');
+    return cached ? JSON.parse(cached) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function clearAdminTokens() {
   localStorage.removeItem('kyubi_access_token');
   localStorage.removeItem('kyubi_refresh_token');
+  localStorage.removeItem('kyubi_admin_user');
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { NextResponse } from 'next/server';
 import { requireStaffRole, assertCanTargetUser, emitUserSanctioned } from '@/lib/admin';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
@@ -6,7 +7,7 @@ import { createBan, createMute } from '@/lib/moderation';
 import { notifyModerationWarning } from '@/lib/notifications';
 
 const sanctionSchema = z.object({
-  action: z.enum(['WARN', 'MUTE', 'SUSPEND', 'BAN']),
+  action: z.enum(['WARN', 'MUTE', 'SUSPEND', 'BAN', 'SUSPEND_USER', 'BAN_USER']),
   reason: z.string().trim().min(3, 'La razón debe tener al menos 3 caracteres'),
   // Tope de 1 año para evitar duraciones absurdas (p.ej. 10^9 horas).
   durationHours: z.number().int().positive().max(24 * 365).optional(),
@@ -33,15 +34,32 @@ export const POST = withErrorHandling(async (request: Request, context: RouteCon
   const targetGuard = assertCanTargetUser(auth.role, targetUser.role);
   if (targetGuard) return targetGuard;
 
-  // Jerarquía de permisos por acción: solo ADMIN+ puede aplicar ban.
-  if (data.action === 'BAN' && auth.role === 'MODERATOR') {
-    return fail('Se requiere rol ADMIN o superior para aplicar ban', 403);
+  // Normalizar acción
+  const rawAction = data.action;
+  const normalizedAction: 'WARN' | 'MUTE' | 'SUSPEND' | 'BAN' =
+    rawAction === 'SUSPEND_USER' ? 'SUSPEND' : rawAction === 'BAN_USER' ? 'BAN' : rawAction;
+
+  // Jerarquía de permisos por acción: MODERATOR no puede aplicar BAN ni suspensiones permanentes.
+  if (
+    auth.role === 'MODERATOR' &&
+    (rawAction === 'BAN' ||
+      rawAction === 'BAN_USER' ||
+      rawAction === 'SUSPEND_USER' ||
+      (rawAction === 'SUSPEND' && !data.durationHours))
+  ) {
+    return NextResponse.json(
+      {
+        error: 'Permisos insuficientes. Solo administradores y owners pueden aplicar baneos.',
+        message: 'Permisos insuficientes. Solo administradores y owners pueden aplicar baneos.',
+      },
+      { status: 403 }
+    );
   }
 
   const now = new Date();
   let expiresAt: Date | null = null;
 
-  if (data.durationHours && ['MUTE', 'SUSPEND', 'BAN'].includes(data.action)) {
+  if (data.durationHours && ['MUTE', 'SUSPEND', 'BAN'].includes(normalizedAction)) {
     expiresAt = new Date(now.getTime() + data.durationHours * 60 * 60 * 1000);
   }
 
@@ -53,7 +71,7 @@ export const POST = withErrorHandling(async (request: Request, context: RouteCon
   };
 
   await prisma.$transaction(async (tx) => {
-    switch (data.action) {
+    switch (normalizedAction) {
       case 'WARN': {
         // Just log the warning
         await tx.moderationLog.create({
@@ -130,7 +148,7 @@ export const POST = withErrorHandling(async (request: Request, context: RouteCon
   // Emitir SOLO tras commit exitoso: si la tx falla, no se notifica una
   // sanción que no existe.
   emitUserSanctioned(targetUserId, {
-    action: data.action,
+    action: normalizedAction,
     reason: data.reason,
     expiresAt,
     moderatorId: auth.userId,
@@ -138,7 +156,7 @@ export const POST = withErrorHandling(async (request: Request, context: RouteCon
 
   // Notificación en el centro de notificaciones del usuario sancionado.
   // Para WARN se crea MODERATION_WARNING; el resto se cubre con user:sanctioned.
-  if (data.action === 'WARN') {
+  if (normalizedAction === 'WARN') {
     await notifyModerationWarning({
       userId: targetUserId,
       reason: data.reason,
@@ -146,5 +164,5 @@ export const POST = withErrorHandling(async (request: Request, context: RouteCon
     });
   }
 
-  return ok({ success: true, action: data.action, targetUserId });
+  return ok({ success: true, action: normalizedAction, targetUserId });
 });

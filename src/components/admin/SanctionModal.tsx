@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   AlertTriangle,
   MicOff,
@@ -10,7 +10,7 @@ import {
   Clock,
   ShieldAlert,
 } from 'lucide-react';
-import { adminFetch } from '@/components/admin/api';
+import { adminFetch, getCurrentAdminUser } from '@/components/admin/api';
 
 const ACTIONS = [
   {
@@ -39,7 +39,7 @@ const ACTIONS = [
   },
   {
     value: 'BAN',
-    label: 'Ban (Admin+)',
+    label: 'Ban',
     icon: Ban,
     style: 'from-red-600/20 to-rose-700/20 border-red-500/40 text-red-300 shadow-red-500/10',
     activeStyle: 'bg-gradient-to-r from-red-600/40 to-rose-600/40 border-red-400 text-white shadow-md shadow-red-500/30',
@@ -55,6 +55,8 @@ interface SanctionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  currentRole?: string;
+  initialAction?: SanctionAction;
 }
 
 export default function SanctionModal({
@@ -63,14 +65,37 @@ export default function SanctionModal({
   isOpen,
   onClose,
   onSuccess,
+  currentRole: propRole,
+  initialAction = 'WARN',
 }: SanctionModalProps) {
-  const [action, setAction] = useState<SanctionAction>('WARN');
+  const [currentRole, setCurrentRole] = useState<string | null>(propRole ?? null);
+  const [action, setAction] = useState<SanctionAction>(initialAction);
   const [durationHours, setDurationHours] = useState<number>(24);
   const [permanent, setPermanent] = useState(false);
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (propRole) {
+      setCurrentRole(propRole);
+      return;
+    }
+    const adminUser = getCurrentAdminUser();
+    if (adminUser?.role) {
+      setCurrentRole(adminUser.role);
+    }
+  }, [propRole]);
+
+  const canBan = currentRole === 'ADMIN' || currentRole === 'OWNER';
+
+  useEffect(() => {
+    if (isOpen) {
+      setAction(initialAction === 'BAN' && !canBan ? 'WARN' : initialAction);
+      setError(null);
+    }
+  }, [isOpen, initialAction, canBan]);
 
   if (!isOpen) return null;
 
@@ -80,6 +105,14 @@ export default function SanctionModal({
 
   const handleSubmit = async () => {
     if (!reasonValid) return;
+    if (action === 'BAN' && !canBan) {
+      setError('Permisos insuficientes. Solo administradores y owners pueden aplicar baneos.');
+      return;
+    }
+    if (permanent && !canBan) {
+      setError('Permisos insuficientes. Solo administradores y owners pueden aplicar suspensiones permanentes.');
+      return;
+    }
     setLoading(true);
     setError(null);
 
@@ -96,7 +129,7 @@ export default function SanctionModal({
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || `Error ${res.status}`);
+        throw new Error(data.error || data.message || `Error ${res.status}`);
       }
 
       onSuccess?.();
@@ -155,19 +188,39 @@ export default function SanctionModal({
               {ACTIONS.map((a) => {
                 const Icon = a.icon;
                 const isSelected = action === a.value;
+                const isBan = a.value === 'BAN';
+                const isDisabled = isBan && !canBan;
+
                 return (
                   <button
                     key={a.value}
                     type="button"
-                    onClick={() => setAction(a.value)}
-                    className={`flex items-center gap-2 px-3 py-2.5 rounded-2xl text-xs font-semibold border transition-all duration-200 ${
-                      isSelected
-                        ? a.activeStyle
-                        : 'bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.06] hover:border-white/20'
+                    disabled={isDisabled}
+                    onClick={() => {
+                      if (!isDisabled) setAction(a.value);
+                    }}
+                    title={
+                      isDisabled
+                        ? 'Solo Administradores y Owners pueden aplicar baneos'
+                        : undefined
+                    }
+                    className={`relative flex items-center justify-between gap-1.5 px-3 py-2.5 rounded-2xl text-xs font-semibold border transition-all duration-200 ${
+                      isDisabled
+                        ? 'opacity-40 cursor-not-allowed bg-white/[0.02] border-white/5 text-slate-500'
+                        : isSelected
+                          ? a.activeStyle
+                          : 'bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.06] hover:border-white/20'
                     }`}
                   >
-                    <Icon className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{a.label}</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="truncate">{a.label}</span>
+                    </div>
+                    {isDisabled && (
+                      <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 shrink-0">
+                        Solo Admins/Owner
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -182,14 +235,27 @@ export default function SanctionModal({
                   <Clock className="w-3.5 h-3.5 text-slate-400" />
                   <span>Duración de la sanción</span>
                 </label>
-                <label className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer">
+                <label
+                  className={`flex items-center gap-1.5 text-xs text-slate-400 ${
+                    !canBan ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+                  }`}
+                  title={!canBan ? 'Solo Administradores y Owners pueden aplicar suspensiones permanentes' : undefined}
+                >
                   <input
                     type="checkbox"
-                    checked={permanent}
-                    onChange={(e) => setPermanent(e.target.checked)}
-                    className="rounded accent-rose-500"
+                    disabled={!canBan}
+                    checked={permanent && canBan}
+                    onChange={(e) => {
+                      if (canBan) setPermanent(e.target.checked);
+                    }}
+                    className="rounded accent-rose-500 disabled:cursor-not-allowed"
                   />
                   <span>Permanente</span>
+                  {!canBan && (
+                    <span className="text-[8px] font-bold text-amber-400/90 ml-0.5">
+                      (Solo Admins/Owner)
+                    </span>
+                  )}
                 </label>
               </div>
               {!permanent && (

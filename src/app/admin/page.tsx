@@ -2,6 +2,18 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import {
+  LayoutDashboard,
+  ShieldAlert,
+  Gavel,
+  Pin,
+  Clock3,
+  ArrowRight,
+  Users,
+  FileText,
+  History,
+  AlertTriangle,
+} from 'lucide-react';
 import { adminFetch } from '@/components/admin/api';
 
 interface RecentLog {
@@ -23,14 +35,14 @@ interface StatsData {
   recent: RecentLog[];
 }
 
-const ACTION_COLORS: Record<string, string> = {
-  BAN_USER: 'bg-red-900/30 text-red-400 border-red-800',
-  SUSPEND_USER: 'bg-red-900/30 text-red-400 border-red-800',
-  WARN: 'bg-yellow-900/30 text-yellow-400 border-yellow-800',
-  MUTE_USER: 'bg-orange-900/30 text-orange-400 border-orange-800',
-  PIN_POST: 'bg-violet-900/30 text-violet-400 border-violet-800',
-  HIDE_POST: 'bg-blue-900/30 text-blue-400 border-blue-800',
-  RESOLVE_REPORT: 'bg-emerald-900/30 text-emerald-400 border-emerald-800',
+const ACTION_STYLES: Record<string, { bg: string; border: string; text: string }> = {
+  BAN_USER: { bg: 'bg-rose-500/10', border: 'border-rose-500/30', text: 'text-rose-300' },
+  SUSPEND_USER: { bg: 'bg-rose-500/10', border: 'border-rose-500/30', text: 'text-rose-300' },
+  WARN: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', text: 'text-amber-300' },
+  MUTE_USER: { bg: 'bg-orange-500/10', border: 'border-orange-500/30', text: 'text-orange-300' },
+  PIN_POST: { bg: 'bg-violet-500/10', border: 'border-violet-500/30', text: 'text-violet-300' },
+  HIDE_POST: { bg: 'bg-blue-500/10', border: 'border-blue-500/30', text: 'text-blue-300' },
+  RESOLVE_REPORT: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-300' },
 };
 
 export default function AdminDashboardPage() {
@@ -57,116 +69,167 @@ export default function AdminDashboardPage() {
   }, [load]);
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white">📊 Panel de Control</h1>
-        <p className="text-sm text-neutral-500 mt-1">
-          Resumen del estado de moderación de Kyubi
-        </p>
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Cabecera con Icono Lucide y degradado */}
+      <div className="flex items-center gap-3.5">
+        <div className="p-3 rounded-2xl bg-gradient-to-tr from-violet-600/30 to-fuchsia-600/30 border border-white/15 shadow-lg shadow-violet-500/20 flex items-center justify-center">
+          <LayoutDashboard className="w-6 h-6 text-violet-300" />
+        </div>
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+            Panel de Control
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
+            Resumen en tiempo real del estado de moderación de Kyubi
+          </p>
+        </div>
       </div>
 
       {error && (
-        <div className="p-4 bg-red-950/40 border border-red-900 rounded-xl text-red-400 text-sm">
-          {error}
+        <div className="p-4 bg-rose-950/40 border border-rose-900/60 rounded-2xl text-rose-300 text-sm backdrop-blur-md shadow-lg flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+          <span>{error}</span>
         </div>
       )}
 
-      {/* Métricas */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Métricas con Liquid Glass y Squircles */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
         <MetricCard
-          icon="🚨"
+          icon={ShieldAlert}
           label="Reportes pendientes"
           value={stats?.pendingReports}
-          accent="text-yellow-400"
+          gradient="from-amber-500/20 via-orange-500/10 to-transparent"
+          iconColor="text-amber-400"
+          valueColor="bg-gradient-to-r from-amber-200 to-orange-400 bg-clip-text text-transparent"
           loading={loading}
         />
         <MetricCard
-          icon="⚖️"
+          icon={Gavel}
           label="Sanciones activas"
           value={stats?.activeSanctions}
-          accent="text-red-400"
+          gradient="from-rose-500/20 via-pink-500/10 to-transparent"
+          iconColor="text-rose-400"
+          valueColor="bg-gradient-to-r from-rose-200 to-pink-400 bg-clip-text text-transparent"
           loading={loading}
         />
         <MetricCard
-          icon="📌"
+          icon={Pin}
           label="Posts fijados"
           value={
             stats ? `${stats.pinnedPosts} / ${stats.pinnedLimit}` : undefined
           }
-          accent="text-violet-400"
+          gradient="from-violet-500/20 via-indigo-500/10 to-transparent"
+          iconColor="text-violet-400"
+          valueColor="bg-gradient-to-r from-violet-200 to-indigo-400 bg-clip-text text-transparent"
           loading={loading}
         />
         <MetricCard
-          icon="🕒"
+          icon={Clock3}
           label="Acciones de hoy"
           value={stats?.actionsToday}
-          accent="text-emerald-400"
+          gradient="from-emerald-500/20 via-teal-500/10 to-transparent"
+          iconColor="text-emerald-400"
+          valueColor="bg-gradient-to-r from-emerald-200 to-teal-400 bg-clip-text text-transparent"
           loading={loading}
         />
       </div>
 
       {/* Actividad reciente + accesos rápidos */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Actividad reciente */}
-        <div className="lg:col-span-2 rounded-xl border border-neutral-900 bg-neutral-950">
-          <div className="px-4 py-3 border-b border-neutral-900 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-white">Actividad reciente</h2>
+        {/* Actividad reciente en Liquid Glass */}
+        <div className="lg:col-span-2 rounded-3xl border border-white/10 backdrop-blur-xl bg-slate-950/65 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] overflow-hidden flex flex-col">
+          <div className="px-5 py-4 border-b border-white/[0.08] flex items-center justify-between bg-white/[0.02]">
+            <h2 className="text-sm font-bold text-white tracking-wide">
+              Actividad reciente
+            </h2>
             <Link
               href="/admin/audit-logs"
-              className="text-xs text-violet-400 hover:text-violet-300"
+              className="text-xs font-semibold text-violet-400 hover:text-violet-300 flex items-center gap-1 group transition-colors"
             >
-              Ver todo →
+              <span>Ver todo</span>
+              <ArrowRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
             </Link>
           </div>
           {loading ? (
-            <div className="p-8 text-center text-neutral-600 text-sm animate-pulse">
-              Cargando...
+            <div className="p-12 text-center text-slate-500 text-sm animate-pulse">
+              Cargando registros recientes...
             </div>
           ) : !stats?.recent.length ? (
-            <div className="p-8 text-center text-neutral-600 text-sm">
+            <div className="p-12 text-center text-slate-500 text-sm">
               No hay acciones registradas todavía
             </div>
           ) : (
-            <ul className="divide-y divide-neutral-900">
-              {stats.recent.map((log) => (
-                <li key={log.id} className="px-4 py-3 flex items-center gap-3">
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded border whitespace-nowrap ${
-                      ACTION_COLORS[log.action] ??
-                      'bg-neutral-800 text-neutral-300 border-neutral-700'
-                    }`}
+            <ul className="divide-y divide-white/[0.06] flex-1">
+              {stats.recent.map((log) => {
+                const style = ACTION_STYLES[log.action] ?? {
+                  bg: 'bg-white/5',
+                  border: 'border-white/10',
+                  text: 'text-slate-300',
+                };
+                return (
+                  <li
+                    key={log.id}
+                    className="px-5 py-3.5 flex items-center gap-3.5 hover:bg-white/[0.02] transition-colors"
                   >
-                    {log.action}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-neutral-300 truncate">
-                      {log.reason || log.targetType}
-                    </p>
-                    <p className="text-[10px] text-neutral-600">
-                      por @{log.moderator?.username ?? '—'}
-                    </p>
-                  </div>
-                  <span className="text-[10px] text-neutral-600 font-mono whitespace-nowrap">
-                    {new Date(log.createdAt).toLocaleString('es', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                </li>
-              ))}
+                    <span
+                      className={`text-[10px] font-bold px-2.5 py-1 rounded-full border whitespace-nowrap ${style.bg} ${style.border} ${style.text} shadow-sm`}
+                    >
+                      {log.action}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-slate-200 font-medium truncate">
+                        {log.reason || log.targetType}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        por @{log.moderator?.username ?? 'sistema'}
+                      </p>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap bg-white/[0.03] px-2 py-0.5 rounded-lg border border-white/[0.06]">
+                      {new Date(log.createdAt).toLocaleString('es', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
 
-        {/* Accesos rápidos */}
-        <div className="rounded-xl border border-neutral-900 bg-neutral-950 p-4 space-y-3">
-          <h2 className="text-sm font-bold text-white">Accesos rápidos</h2>
-          <QuickLink href="/admin/reports" icon="🚨" label="Centro de Reportes" />
-          <QuickLink href="/admin/users" icon="👥" label="Gestión de Usuarios" />
-          <QuickLink href="/admin/posts" icon="📝" label="Publicaciones" />
-          <QuickLink href="/admin/audit-logs" icon="📜" label="Audit Logs" />
+        {/* Accesos rápidos en Liquid Glass */}
+        <div className="rounded-3xl border border-white/10 backdrop-blur-xl bg-slate-950/65 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] p-5 space-y-3.5 flex flex-col">
+          <h2 className="text-sm font-bold text-white tracking-wide">
+            Accesos rápidos
+          </h2>
+          <div className="space-y-2 flex-1">
+            <QuickLink
+              href="/admin/reports"
+              icon={ShieldAlert}
+              label="Centro de Reportes"
+              color="text-amber-400"
+            />
+            <QuickLink
+              href="/admin/users"
+              icon={Users}
+              label="Gestión de Usuarios"
+              color="text-violet-400"
+            />
+            <QuickLink
+              href="/admin/posts"
+              icon={FileText}
+              label="Publicaciones & Feed"
+              color="text-blue-400"
+            />
+            <QuickLink
+              href="/admin/audit-logs"
+              icon={History}
+              label="Registro de Auditoría"
+              color="text-teal-400"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -174,28 +237,41 @@ export default function AdminDashboardPage() {
 }
 
 function MetricCard({
-  icon,
+  icon: Icon,
   label,
   value,
-  accent,
+  gradient,
+  iconColor,
+  valueColor,
   loading,
 }: {
-  icon: string;
+  icon: React.ComponentType<{ className?: string }>;
   label: string;
   value?: number | string;
-  accent: string;
+  gradient: string;
+  iconColor: string;
+  valueColor: string;
   loading: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-neutral-900 bg-neutral-950 p-4">
-      <div className="flex items-center gap-2">
-        <span className="text-lg">{icon}</span>
-        <span className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+    <div className="relative rounded-3xl border border-white/10 backdrop-blur-xl bg-slate-950/60 p-5 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] hover:border-white/20 transition-all duration-300 group overflow-hidden">
+      {/* Sutil halo difuso de fondo */}
+      <div
+        className={`absolute -top-10 -right-10 w-28 h-28 rounded-full bg-gradient-to-br ${gradient} blur-2xl pointer-events-none transition-opacity duration-300 group-hover:opacity-100 opacity-60`}
+      />
+
+      <div className="relative z-10 flex items-center gap-3">
+        <div className="p-2.5 rounded-2xl bg-white/[0.04] border border-white/10 shadow-sm flex items-center justify-center">
+          <Icon className={`w-5 h-5 ${iconColor}`} />
+        </div>
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
           {label}
         </span>
       </div>
       <p
-        className={`mt-3 text-3xl font-black ${accent} ${loading ? 'animate-pulse opacity-40' : ''}`}
+        className={`relative z-10 mt-4 text-3xl font-black tracking-tight ${valueColor} ${
+          loading ? 'animate-pulse opacity-40' : ''
+        }`}
       >
         {loading ? '—' : (value ?? '0')}
       </p>
@@ -205,21 +281,23 @@ function MetricCard({
 
 function QuickLink({
   href,
-  icon,
+  icon: Icon,
   label,
+  color,
 }: {
   href: string;
-  icon: string;
+  icon: React.ComponentType<{ className?: string }>;
   label: string;
+  color: string;
 }) {
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-neutral-300 hover:bg-violet-600 hover:text-white transition-colors group"
+      className="flex items-center gap-3 px-3.5 py-3 rounded-2xl text-sm text-slate-300 hover:text-white bg-white/[0.02] hover:bg-gradient-to-r hover:from-violet-600/80 hover:to-indigo-600/80 border border-white/[0.06] hover:border-white/20 shadow-sm transition-all duration-200 group"
     >
-      <span>{icon}</span>
+      <Icon className={`w-4 h-4 ${color} group-hover:text-white transition-colors`} />
       <span className="font-medium">{label}</span>
-      <span className="ml-auto text-neutral-600 group-hover:text-white/70">→</span>
+      <ArrowRight className="ml-auto w-3.5 h-3.5 text-slate-500 group-hover:text-white/90 group-hover:translate-x-0.5 transition-all" />
     </Link>
   );
 }

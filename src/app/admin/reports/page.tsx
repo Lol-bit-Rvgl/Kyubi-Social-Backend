@@ -257,7 +257,7 @@ function ReportsContent() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Cabecera */}
-      <div className="flex items-center gap-3.5 mb-2">
+      <div className="flex items-center gap-3.5 mb-6">
         <div className="p-3 rounded-2xl bg-gradient-to-tr from-amber-500/25 to-orange-500/25 border border-white/15 shadow-lg shadow-amber-500/15 flex items-center justify-center">
           <ShieldAlert className="w-6 h-6 text-amber-300" />
         </div>

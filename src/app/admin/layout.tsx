@@ -15,8 +15,8 @@ export default function AdminLayout({
       </div>
 
       <AdminSidebar />
-      {/* pt-16 en móvil deja sitio al topbar fijo del sidebar */}
-      <main className="relative z-10 w-full flex-1 overflow-x-hidden pt-16 md:pt-0 p-4 sm:p-6 md:p-8">
+      {/* pt-20 en móvil deja respiro bajo el topbar fijo de 64px, md:pt-7 nivela exactamente con el header del sidebar */}
+      <main className="relative z-10 w-full flex-1 overflow-x-hidden pt-20 sm:pt-24 md:pt-7 pb-10 px-4 sm:px-6 md:px-8">
         {children}
       </main>
     </div>

@@ -114,9 +114,9 @@ function AuditLogsContent() {
   const totalPages = Math.ceil(total / limit);
 
   return (
-    <div className="p-6 md:p-8 space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       {/* Cabecera */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-3 mb-1">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-violet-500/20 to-purple-500/20 border border-violet-500/30 flex items-center justify-center text-violet-300 shadow-md">

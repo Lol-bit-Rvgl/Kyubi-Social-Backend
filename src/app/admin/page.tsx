@@ -71,7 +71,7 @@ export default function AdminDashboardPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Cabecera con Icono Lucide y degradado */}
-      <div className="flex items-center gap-3.5">
+      <div className="flex items-center gap-3.5 mb-6">
         <div className="p-3 rounded-2xl bg-gradient-to-tr from-violet-600/30 to-fuchsia-600/30 border border-white/15 shadow-lg shadow-violet-500/20 flex items-center justify-center">
           <LayoutDashboard className="w-6 h-6 text-violet-300" />
         </div>

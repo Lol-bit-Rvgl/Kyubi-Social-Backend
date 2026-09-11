@@ -78,7 +78,22 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
     })) > 0;
   }
 
-  const serialized = messages.map(serializeRoomMessage);
+  // Deduplicación estricta de mensajes de inicio / creación de sala (ROOM_CREATED / "Sala iniciada")
+  let hasCreation = false;
+  const filteredMessages = messages.filter((m) => {
+    const isCreation =
+      (m.type as string) === 'ROOM_CREATED' ||
+      ((m.extensions as any)?.subType === 'ROOM_CREATED') ||
+      m.body?.toLowerCase().includes('sala iniciada') ||
+      m.body?.toLowerCase().includes('sala creada');
+    if (isCreation) {
+      if (hasCreation) return false;
+      hasCreation = true;
+    }
+    return true;
+  });
+
+  const serialized = filteredMessages.map(serializeRoomMessage);
   if (sortAsc) serialized.reverse();
 
   return ok({
@@ -115,6 +130,10 @@ function serializeRoomMessage(message: {
   sender: SenderPayload;
 }) {
   const senderName = message.sender.displayName ?? message.sender.username;
+  const ext = ((message.extensions ?? {}) as Record<string, any>) || {};
+  const roleColor = (ext.roleColor || ext.roleColorHex || ext.colorHex || ext.characterColor || null) as string | null;
+  const clientTempId = (ext.clientTempId || null) as string | null;
+
   return {
     id: message.id,
     roomId: message.roomId,
@@ -126,16 +145,28 @@ function serializeRoomMessage(message: {
     username: message.sender.username,
     roleId: message.characterId ?? null,
     roleName: message.characterName ?? null,
+    roleColor,
+    characterColor: roleColor,
+    clientTempId,
     type: message.type,
     content: message.body,
-    metadata: (message.extensions ?? {}) as Prisma.JsonObject,
+    metadata: ext as Prisma.JsonObject,
 
     // ── Compatibilidad con el wire format existente ──
     body: message.body,
     characterId: message.characterId ?? null,
     characterName: message.characterName ?? null,
     characterAvatarUrl: message.characterAvatarUrl ?? null,
-    extensions: (message.extensions ?? {}) as Prisma.JsonObject,
+    role: message.characterName
+      ? {
+          id: message.characterId ?? message.senderId,
+          name: message.characterName,
+          avatarUrl: message.characterAvatarUrl ?? null,
+          colorHex: roleColor || '#00E5FF',
+          color: roleColor || '#00E5FF',
+        }
+      : null,
+    extensions: ext as Prisma.JsonObject,
 
     createdAt: message.createdAt.toISOString(),
   };
@@ -175,6 +206,28 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
 
   const body = sendSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return fail('Mensaje inválido', 400);
+
+  const isCreationMessage =
+    (body.data.type as string) === 'ROOM_CREATED' ||
+    body.data.body.toLowerCase().includes('sala iniciada') ||
+    body.data.body.toLowerCase().includes('sala creada') ||
+    ((body.data.extensions as any)?.subType === 'ROOM_CREATED');
+
+  if (isCreationMessage) {
+    const existing = await prisma.roomMessage.findFirst({
+      where: {
+        roomId: id,
+        OR: [
+          { body: { contains: 'Sala iniciada', mode: 'insensitive' } },
+          { body: { contains: 'Sala creada', mode: 'insensitive' } },
+        ],
+      },
+      include: { sender: true },
+    });
+    if (existing && existing.sender) {
+      return ok(serializeRoomMessage(existing as any), 200);
+    }
+  }
 
   const message = await prisma.roomMessage.create({
     data: {

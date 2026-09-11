@@ -297,6 +297,8 @@ function publicRoomSender(u) {
 function roomMessagePayload(m) {
   const sender = publicRoomSender(m.sender);
   const metadata = objectOrEmpty(m.extensions);
+  const roleColor = metadata.roleColor || metadata.roleColorHex || metadata.colorHex || metadata.characterColor || null;
+  const clientTempId = metadata.clientTempId || null;
   return {
     id: m.id,
     roomId: m.roomId,
@@ -307,6 +309,9 @@ function roomMessagePayload(m) {
     username: sender.username,
     roleId: m.characterId || null,
     roleName: m.characterName || null,
+    roleColor,
+    characterColor: roleColor,
+    clientTempId,
     type: m.type || 'TEXT',
     content: m.body,
     metadata,
@@ -315,6 +320,15 @@ function roomMessagePayload(m) {
     characterId: m.characterId || null,
     characterName: m.characterName || null,
     characterAvatarUrl: m.characterAvatarUrl || null,
+    role: m.characterName
+      ? {
+          id: m.characterId || m.senderId,
+          name: m.characterName,
+          avatarUrl: m.characterAvatarUrl || null,
+          colorHex: roleColor || '#00E5FF',
+          color: roleColor || '#00E5FF',
+        }
+      : null,
     extensions: metadata,
     createdAt: new Date(m.createdAt).toISOString(),
   };
@@ -577,6 +591,29 @@ const MODE_SYSTEM_TEXT_END = {
 /// retransmite por el canal habitual de mensajes para que aparezca en vivo y
 /// quede en el historial para los que entren después.
 async function createRoomSystemMessage(prisma, roomId, senderId, body, extensions = {}) {
+  const isCreationMessage =
+    extensions?.subType === 'ROOM_CREATED' ||
+    (typeof body === 'string' && body.toLowerCase().includes('sala iniciada')) ||
+    (typeof body === 'string' && body.toLowerCase().includes('sala creada'));
+
+  if (isCreationMessage) {
+    const existing = await prisma.roomMessage.findFirst({
+      where: {
+        roomId,
+        OR: [
+          { type: 'ROOM_CREATED' },
+          { body: { contains: 'Sala iniciada', mode: 'insensitive' } },
+          { body: { contains: 'Sala creada', mode: 'insensitive' } },
+        ],
+      },
+      include: { sender: true },
+    });
+    if (existing) {
+      console.log(`[MODE_DEBUG_SERVER] Mensaje de inicio/creación ya existe en sala:${roomId}. Se omite duplicado.`);
+      return roomMessagePayload(existing);
+    }
+  }
+
   const message = await prisma.roomMessage.create({
     data: {
       roomId,
@@ -589,7 +626,6 @@ async function createRoomSystemMessage(prisma, roomId, senderId, body, extension
   });
   const payload = roomMessagePayload(message);
   io.to(`sala:${roomId}`).emit('room:message', payload);
-  io.to(`sala:${roomId}`).emit('chat:message', payload);
   console.log(`[MODE_DEBUG_SERVER] Mensaje de sistema persistido en sala:${roomId}: ${body}`);
   return payload;
 }
@@ -597,42 +633,8 @@ async function createRoomSystemMessage(prisma, roomId, senderId, body, extension
 const roomJoinDebounce = new Map(); // key: `${roomId}:${userId}`, value: timestamp
 
 async function handleUserJoinRoom(socket, roomId, userId) {
-  const now = Date.now();
-  const joinKey = `${roomId}:${userId}`;
-  const lastJoin = roomJoinDebounce.get(joinKey) || 0;
-  // Debounce de 60 segundos por usuario y sala para evitar duplicados al refrescar/reconectar
-  if (now - lastJoin < 60_000) {
-    return;
-  }
-  roomJoinDebounce.set(joinKey, now);
-
-  if (roomJoinDebounce.size > 5000) {
-    for (const [k, ts] of roomJoinDebounce.entries()) {
-      if (now - ts > 300_000) roomJoinDebounce.delete(k);
-    }
-  }
-
-  try {
-    const prisma = await matchPrisma();
-    const room = await prisma.room.findUnique({
-      where: { id: roomId },
-      select: { id: true },
-    });
-    if (!room) return;
-
-    const actor = await fetchPublicUser(userId, socket.data.username || '');
-    const userName = actor.displayName || actor.username || socket.data.username || 'Un usuario';
-    const body = `${userName} se ha unido.`;
-    const extensions = {
-      subType: 'USER_JOIN',
-      userId,
-      userName,
-    };
-
-    await createRoomSystemMessage(prisma, roomId, userId, body, extensions);
-  } catch (err) {
-    console.error(`[SOCKET_SERVER] Error al persistir mensaje de unión para ${userId} en sala:${roomId}:`, err.message);
-  }
+  // La conexión a nivel de socket es silenciosa (transporte).
+  // Los mensajes de sistema por unión formal se gestionan exclusivamente en POST /api/salas/[id]/join.
 }
 
 async function handleRoomModeChange(socket, payload) {
@@ -860,12 +862,7 @@ io.on('connection', (socket) => {
       typeof data === 'string' ? data : (data?.roomId || data?.id);
     if (typeof parsedRoomId === 'string' && parsedRoomId) {
       socket.join(`sala:${parsedRoomId}`);
-      console.log(`[SOCKET_SERVER] Socket ${socket.id} (User: ${socket.data.userId}) se unió a sala:${parsedRoomId}`);
-      if (socket.data.userId) {
-        handleUserJoinRoom(socket, parsedRoomId, socket.data.userId).catch((err) => {
-          console.error(`[SOCKET_SERVER] Error en handleUserJoinRoom sala:${parsedRoomId}:`, err.message);
-        });
-      }
+      console.log(`[SOCKET_SERVER] Socket ${socket.id} (User: ${socket.data.userId}) suscrito a canal sala:${parsedRoomId} (silencioso)`);
     }
   });
   socket.on('room:leave', (data) => {

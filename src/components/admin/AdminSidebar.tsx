@@ -13,6 +13,7 @@ import {
   X,
   Activity,
 } from 'lucide-react';
+import { adminFetch } from './api';
 
 const NAV_ITEMS = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
@@ -41,36 +42,83 @@ const ROLE_STYLES: Record<string, string> = {
 export default function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const [user, setUser] = useState<AdminUser | null>(null);
-  const [checked, setChecked] = useState(false);
+  const [user, setUser] = useState<AdminUser | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem('kyubi_admin_user');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [checked, setChecked] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return !!localStorage.getItem('kyubi_admin_user');
+  });
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('kyubi_access_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    if (typeof navigator !== 'undefined') {
+      setIsOnline(navigator.onLine);
     }
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
-    fetch('/auth/me', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          localStorage.removeItem('kyubi_access_token');
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadUser() {
+      try {
+        const token = localStorage.getItem('kyubi_access_token');
+        if (!token) {
           router.replace('/login');
           return;
         }
+
+        const res = await adminFetch('/auth/me');
+        if (!res.ok) {
+          if (res.status === 401) {
+            localStorage.removeItem('kyubi_admin_user');
+            router.replace('/login');
+          }
+          return;
+        }
+
         const data = await res.json();
-        const u: AdminUser = data.user ?? data;
-        if (!STAFF_ROLES.includes(u.role)) {
+        const u: AdminUser = data.user ?? data.data ?? data;
+        if (!u || !STAFF_ROLES.includes(u.role)) {
           router.replace('/');
           return;
         }
-        setUser(u);
-      })
-      .catch(() => router.replace('/login'))
-      .finally(() => setChecked(true));
+
+        if (isMounted) {
+          setUser(u);
+          try {
+            localStorage.setItem('kyubi_admin_user', JSON.stringify(u));
+          } catch {}
+        }
+      } catch (err) {
+        console.error('Error fetching admin user:', err);
+      } finally {
+        if (isMounted) {
+          setChecked(true);
+        }
+      }
+    }
+
+    loadUser();
+
+    return () => {
+      isMounted = false;
+    };
   }, [router]);
 
   // Cerrar drawer al cambiar de ruta
@@ -78,7 +126,7 @@ export default function AdminSidebar() {
     setDrawerOpen(false);
   }, [pathname]);
 
-  const content = <SidebarContent pathname={pathname} user={user} />;
+  const content = <SidebarContent pathname={pathname} user={user} isOnline={isOnline} />;
 
   return (
     <>
@@ -121,8 +169,8 @@ export default function AdminSidebar() {
             className="md:hidden fixed inset-0 z-40 bg-black/75 backdrop-blur-sm"
             onClick={() => setDrawerOpen(false)}
           />
-          <aside className="md:hidden fixed inset-y-0 left-0 z-50 w-72 backdrop-blur-2xl bg-slate-950/90 border-r border-white/10 shadow-2xl overflow-y-auto flex flex-col">
-            {checked ? (
+          <aside className="md:hidden fixed inset-y-0 left-0 z-50 w-72 h-screen backdrop-blur-2xl bg-slate-950/95 border-r border-white/10 shadow-2xl overflow-hidden flex flex-col">
+            {checked || user ? (
               content
             ) : (
               <div className="h-full flex items-center justify-center">
@@ -134,8 +182,8 @@ export default function AdminSidebar() {
       )}
 
       {/* ── Sidebar fijo (md+) con Liquid Glass ── */}
-      <aside className="hidden md:flex w-64 min-h-screen backdrop-blur-2xl bg-slate-950/65 border-r border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] flex-col shrink-0 sticky top-0 z-30">
-        {checked ? (
+      <aside className="hidden md:flex w-64 h-screen max-h-screen backdrop-blur-2xl bg-slate-950/65 border-r border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] flex-col shrink-0 sticky top-0 z-30 overflow-hidden">
+        {checked || user ? (
           content
         ) : (
           <div className="flex-1 flex items-center justify-center">
@@ -150,14 +198,16 @@ export default function AdminSidebar() {
 function SidebarContent({
   pathname,
   user,
+  isOnline,
 }: {
   pathname: string;
   user: AdminUser | null;
+  isOnline: boolean;
 }) {
   return (
-    <>
+    <div className="flex flex-col h-full w-full justify-between">
       {/* Header / Logo de Kyubi con efecto resplandor */}
-      <div className="px-5 pt-7 pb-6 border-b border-white/[0.06]">
+      <div className="px-5 pt-7 pb-6 border-b border-white/[0.06] shrink-0">
         <Link href="/admin" className="block group">
           <div className="flex items-center gap-3">
             <div className="relative w-11 h-11 rounded-2xl p-1 bg-gradient-to-tr from-violet-600/30 via-purple-600/20 to-fuchsia-600/30 border border-white/15 shadow-lg shadow-violet-500/25 flex items-center justify-center overflow-hidden transition-transform duration-300 group-hover:scale-105">
@@ -186,7 +236,7 @@ function SidebarContent({
       </div>
 
       {/* Navigation con iconos Lucide y Squircles */}
-      <nav className="flex-1 px-3 py-5 space-y-1.5">
+      <nav className="flex-1 px-3 py-5 space-y-1.5 overflow-y-auto min-h-0">
         {NAV_ITEMS.map((item) => {
           const active = item.exact
             ? pathname === item.href
@@ -214,28 +264,44 @@ function SidebarContent({
       </nav>
 
       {/* Footer con Liquid Glass */}
-      <div className="p-3.5 space-y-2.5 border-t border-white/[0.06]">
+      <div className="p-3.5 space-y-2.5 border-t border-white/[0.06] shrink-0 mt-auto">
         {/* Status Socket Card */}
         <div className="rounded-2xl bg-white/[0.02] border border-white/[0.08] backdrop-blur-md px-3.5 py-2.5 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="relative flex h-2 w-2">
-                <span className="pulse-dot absolute inline-flex h-full w-full rounded-full bg-emerald-400" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-sm shadow-emerald-500/50" />
+                {isOnline && (
+                  <span className="pulse-dot absolute inline-flex h-full w-full rounded-full bg-emerald-400" />
+                )}
+                <span
+                  className={`relative inline-flex rounded-full h-2 w-2 ${
+                    isOnline
+                      ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50'
+                      : 'bg-rose-500 shadow-sm shadow-rose-500/50'
+                  }`}
+                />
               </span>
-              <span className="text-[10px] font-bold tracking-widest text-emerald-400 uppercase">
-                ONLINE
+              <span
+                className={`text-[10px] font-bold tracking-widest uppercase ${
+                  isOnline ? 'text-emerald-400' : 'text-rose-400'
+                }`}
+              >
+                {isOnline ? 'ONLINE' : 'OFFLINE'}
               </span>
             </div>
-            <Activity className="w-3.5 h-3.5 text-emerald-500/70" />
+            <Activity
+              className={`w-3.5 h-3.5 ${
+                isOnline ? 'text-emerald-500/70' : 'text-rose-500/70'
+              }`}
+            />
           </div>
           <p className="mt-1 text-[9px] text-slate-500 font-medium tracking-wide">
-            SOCKET CONECTADO
+            {isOnline ? 'SOCKET CONECTADO' : 'DESCONECTADO'}
           </p>
         </div>
 
         {/* User Card */}
-        {user && (
+        {user ? (
           <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] backdrop-blur-md p-2.5 flex items-center gap-3">
             {user.avatarUrl ? (
               <img
@@ -245,7 +311,7 @@ function SidebarContent({
               />
             ) : (
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center text-white font-bold text-xs ring-1 ring-white/20 shadow-sm">
-                {user.username[0]?.toUpperCase()}
+                {user.username?.[0]?.toUpperCase() ?? 'U'}
               </div>
             )}
             <div className="flex-1 min-w-0">
@@ -261,8 +327,16 @@ function SidebarContent({
               </span>
             </div>
           </div>
+        ) : (
+          <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] backdrop-blur-md p-2.5 flex items-center gap-3 animate-pulse">
+            <div className="w-9 h-9 rounded-xl bg-slate-800/80" />
+            <div className="flex-1 space-y-1.5">
+              <div className="h-3 bg-slate-800 rounded w-20" />
+              <div className="h-2 bg-slate-800 rounded w-12" />
+            </div>
+          </div>
         )}
       </div>
-    </>
+    </div>
   );
 }

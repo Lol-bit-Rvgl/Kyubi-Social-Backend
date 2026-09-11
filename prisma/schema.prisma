@@ -148,6 +148,7 @@ enum NotificationType {
   COMMENT
   MENTION
   WALL
+  MODERATION_WARNING
 }
 
 enum StoryMediaType {

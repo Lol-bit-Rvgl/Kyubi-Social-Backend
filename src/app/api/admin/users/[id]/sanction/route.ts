@@ -3,6 +3,7 @@ import { requireStaffRole, assertCanTargetUser, emitUserSanctioned } from '@/lib
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { createBan, createMute } from '@/lib/moderation';
+import { notifyModerationWarning } from '@/lib/notifications';
 
 const sanctionSchema = z.object({
   action: z.enum(['WARN', 'MUTE', 'SUSPEND', 'BAN']),
@@ -134,6 +135,16 @@ export const POST = withErrorHandling(async (request: Request, context: RouteCon
     expiresAt,
     moderatorId: auth.userId,
   });
+
+  // Notificación en el centro de notificaciones del usuario sancionado.
+  // Para WARN se crea MODERATION_WARNING; el resto se cubre con user:sanctioned.
+  if (data.action === 'WARN') {
+    await notifyModerationWarning({
+      userId: targetUserId,
+      reason: data.reason,
+      target: { type: 'USER', id: targetUserId },
+    });
+  }
 
   return ok({ success: true, action: data.action, targetUserId });
 });

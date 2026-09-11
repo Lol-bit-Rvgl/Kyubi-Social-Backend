@@ -32,7 +32,7 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
   const cursor = url.searchParams.get('cursor');
 
   const posts = await prisma.post.findMany({
-    where: { circleId },
+    where: { circleId, isHidden: false },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: limit + 1,
     skip: cursor ? 1 : 0,
@@ -57,7 +57,7 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
       })
     ),
     nextCursor,
-    total: await prisma.post.count({ where: { circleId } }),
+    total: await prisma.post.count({ where: { circleId, isHidden: false } }),
   });
 });
 

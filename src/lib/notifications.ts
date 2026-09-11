@@ -60,6 +60,7 @@ const PUSH_TITLES: Record<NotificationType, string> = {
   WALL: 'Nueva firma en tu muro ✍️',
   REACTION: 'Nueva reacción ❤️',
   FOLLOW: 'Nuevo seguidor ✨',
+  MODERATION_WARNING: 'Aviso de moderación ⚠️',
 };
 
 export async function notify(params: {
@@ -99,6 +100,50 @@ export async function notify(params: {
       actorId: params.actorId ?? '',
     },
     imageUrl: notification.actor?.avatarUrl ?? null,
+  });
+}
+
+/**
+ * Notificación de advertencia de moderación: se crea directamente (sin actor)
+ * para que el usuario sancionado la vea en su centro de notificaciones y reciba
+ * el evento en tiempo real por Socket.IO.
+ */
+export async function notifyModerationWarning(params: {
+  userId: string;
+  reason: string;
+  target?: { type: string; id?: string | null };
+}): Promise<void> {
+  if (!params.userId) return;
+  const text = `Has recibido una advertencia del equipo de moderación: ${params.reason}`.slice(
+    0,
+    500
+  );
+
+  const notification = await prisma.notification.create({
+    data: {
+      userId: params.userId,
+      actorId: null,
+      type: 'MODERATION_WARNING',
+      targetType: params.target?.type ?? null,
+      targetId: params.target?.id ?? null,
+      text,
+    },
+    include: notificationInclude,
+  });
+
+  emitToUser(params.userId, 'notification_received', serializeNotification(notification));
+
+  await sendPushNotification({
+    userId: params.userId,
+    title: PUSH_TITLES.MODERATION_WARNING,
+    body: text,
+    data: {
+      type: 'moderation_warning',
+      targetType: params.target?.type ?? '',
+      targetId: params.target?.id ?? '',
+      actorId: '',
+    },
+    imageUrl: null,
   });
 }
 

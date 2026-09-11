@@ -29,6 +29,9 @@ vi.mock('@/lib/socketio', () => ({
   emitToUser: vi.fn(() => undefined),
   emitToRoom: vi.fn(() => undefined),
 }));
+vi.mock('@/lib/notifications', () => ({
+  notifyModerationWarning: vi.fn(async () => undefined),
+}));
 
 import { prisma } from '@/lib/prisma';
 import { POST as sanctionUser } from '@/app/api/admin/users/[id]/sanction/route';

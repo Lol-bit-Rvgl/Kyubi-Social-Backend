@@ -3,6 +3,8 @@ import { prisma } from './prisma';
 export async function canAccessPost(postId: string, userId: string) {
   const post = await prisma.post.findUnique({ where: { id: postId } });
   if (!post) return null;
+  // Posts ocultos por moderación: solo accesibles para su autor.
+  if (post.isHidden && post.authorId !== userId) return null;
   if (post.authorId === userId || post.visibility === 'PUBLIC') return post;
   if (post.visibility === 'PRIVATE') return false;
   if (post.visibility === 'CIRCLE') {

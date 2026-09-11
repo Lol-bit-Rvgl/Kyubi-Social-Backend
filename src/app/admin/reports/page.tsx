@@ -272,8 +272,8 @@ function ReportsContent() {
       </div>
 
       {/* Table */}
-      <div className="bg-slate-900 rounded-xl overflow-hidden border border-slate-800">
-        <table className="w-full text-sm">
+      <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-x-auto">
+        <table className="w-full min-w-[820px] text-sm">
           <thead className="bg-slate-800 border-b border-slate-700">
             <tr>
               <th className="p-3 text-left">Fecha</th>
@@ -362,29 +362,31 @@ function ReportsContent() {
                       {report.status}
                     </span>
                   </td>
-                  <td className="p-3 space-x-2">
-                    {isPost && (
+                  <td className="p-3">
+                    <div className="flex flex-wrap gap-2 justify-start items-center">
+                      {isPost && (
+                        <button
+                          onClick={() => openDrawer(report)}
+                          className="text-xs bg-violet-600/20 text-violet-300 px-2 py-1 rounded hover:bg-violet-600/30 whitespace-nowrap"
+                        >
+                          Inspeccionar
+                        </button>
+                      )}
                       <button
-                        onClick={() => openDrawer(report)}
-                        className="text-xs bg-violet-600/20 text-violet-300 px-2 py-1 rounded hover:bg-violet-600/30"
+                        onClick={() => handleUpdateStatus(report.id, 'REVIEWING')}
+                        className="text-xs bg-blue-600/20 text-blue-400 px-2 py-1 rounded hover:bg-blue-600/30 whitespace-nowrap"
                       >
-                        Inspeccionar
+                        Revisar
                       </button>
-                    )}
-                    <button
-                      onClick={() => handleUpdateStatus(report.id, 'REVIEWING')}
-                      className="text-xs bg-blue-600/20 text-blue-400 px-2 py-1 rounded hover:bg-blue-600/30"
-                    >
-                      Revisar
-                    </button>
-                    <button
-                      onClick={() =>
-                        handleUpdateStatus(report.id, 'DISMISSED', 'No action needed')
-                      }
-                      className="text-xs bg-slate-600/20 text-slate-400 px-2 py-1 rounded hover:bg-slate-600/30"
-                    >
-                      Descartar
-                    </button>
+                      <button
+                        onClick={() =>
+                          handleUpdateStatus(report.id, 'DISMISSED', 'No action needed')
+                        }
+                        className="text-xs bg-slate-600/20 text-slate-400 px-2 py-1 rounded hover:bg-slate-600/30 whitespace-nowrap"
+                      >
+                        Descartar
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

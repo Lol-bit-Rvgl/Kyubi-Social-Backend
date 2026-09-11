@@ -13,6 +13,8 @@ export const GET = withErrorHandling(async (request: Request) => {
 
   const posts = await prisma.post.findMany({
     where: {
+      // Excluir posts ocultos por moderación.
+      isHidden: false,
       OR: [
         // Publicaciones públicas de cualquier usuario (feed abierto).
         { visibility: 'PUBLIC' },

@@ -414,6 +414,10 @@ async function handleSendRoomMessage(socket, payload) {
   const mediaUrl = typeof payload.mediaUrl === 'string' ? payload.mediaUrl.trim() : (typeof payload.contentUrl === 'string' ? payload.contentUrl.trim() : null);
   const content = rawContent || mediaUrl || (type === 'IMAGE' ? '[Imagen]' : type === 'VOICE' ? '[Audio]' : '');
   if (!content && type === 'TEXT') return;
+  if (rawContent.length > 4000) {
+    socket.emit('error', { message: 'El mensaje no puede superar los 4000 caracteres' });
+    return;
+  }
   const body = (content || '[Multimedia]').slice(0, 4000);
 
   // Acepta tanto roleId/roleName como characterId/characterName (alias).
@@ -426,6 +430,25 @@ async function handleSendRoomMessage(socket, payload) {
   if (payload.diceResult && !metadata.diceResult) metadata.diceResult = payload.diceResult;
   if (payload.diceEmoji && !metadata.diceEmoji) metadata.diceEmoji = payload.diceEmoji;
   if (payload.diceName && !metadata.diceName) metadata.diceName = payload.diceName;
+
+  if (type === 'POLL') {
+    const pollQuestion = typeof metadata.question === 'string' ? metadata.question.trim() : rawContent;
+    if (pollQuestion.length > 80) {
+      metadata.question = pollQuestion.slice(0, 80);
+    }
+    if (Array.isArray(metadata.options)) {
+      metadata.options = metadata.options.slice(0, 6).map((opt) => {
+        if (typeof opt === 'string') return opt.trim().slice(0, 20);
+        if (opt && typeof opt === 'object') {
+          return {
+            ...opt,
+            text: typeof opt.text === 'string' ? opt.text.trim().slice(0, 20) : '',
+          };
+        }
+        return opt;
+      });
+    }
+  }
 
   let prisma;
   try {

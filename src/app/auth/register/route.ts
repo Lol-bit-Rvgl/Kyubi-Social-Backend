@@ -11,7 +11,7 @@ const input = z.object({
   email: z.string().email(),
   username: z.string().min(3).max(30).regex(/^[a-zA-Z0-9_]+$/),
   password: z.string().min(8).max(128),
-  displayName: z.string().min(1).max(80).optional(),
+  displayName: z.string().min(1).max(30).optional(),
 });
 const limiter = createRateLimiter({ windowMs: 15 * 60_000, max: 5 });
 

@@ -36,8 +36,8 @@ export const GET = withErrorHandling(async (request: Request) => {
 });
 
 const createSchema = z.object({
-  name: z.string().trim().min(1).max(80),
-  description: z.string().trim().max(600).optional(),
+  name: z.string().trim().min(1).max(30),
+  description: z.string().trim().max(300).optional(),
   avatarUrl: z.string().nullable().optional(),
   bannerUrl: z.string().nullable().optional(),
   isPrivate: z.boolean().optional(),

@@ -48,8 +48,8 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
 });
 
 const patchSchema = z.object({
-  name: z.string().trim().min(1).max(80).optional(),
-  description: z.string().trim().max(600).nullable().optional(),
+  name: z.string().trim().min(3).max(30).optional(),
+  description: z.string().trim().max(300).nullable().optional(),
   imageUrl: z.string().nullable().optional(),
   chatBackgroundUrl: z.string().nullable().optional(),
   rules: z.array(z.string().trim().min(1).max(140)).max(10).optional(),

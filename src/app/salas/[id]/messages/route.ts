@@ -235,6 +235,24 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
     return fail('El contenido del mensaje no puede estar vacío', 400);
   }
 
+  if (body.data.type === 'POLL') {
+    const pollMeta = (body.data.metadata || body.data.extensions || {}) as Record<string, any>;
+    const pollQuestion = typeof pollMeta.question === 'string' ? pollMeta.question.trim() : rawBody;
+    if (!pollQuestion || pollQuestion.length > 80) {
+      return fail('La pregunta de la encuesta debe tener entre 1 y 80 caracteres', 400);
+    }
+    const pollOptions = Array.isArray(pollMeta.options) ? pollMeta.options : [];
+    if (pollOptions.length < 2 || pollOptions.length > 6) {
+      return fail('La encuesta debe tener entre 2 y 6 opciones', 400);
+    }
+    for (const opt of pollOptions) {
+      const optText = typeof opt === 'string' ? opt.trim() : (typeof opt?.text === 'string' ? opt.text.trim() : '');
+      if (!optText || optText.length > 20) {
+        return fail('Cada opción de la encuesta debe tener entre 1 y 20 caracteres', 400);
+      }
+    }
+  }
+
   const finalBody =
     rawBody ||
     (body.data.type === 'IMAGE' ? '[Imagen]' : body.data.type === 'VOICE' ? '[Audio]' : '[Multimedia]');

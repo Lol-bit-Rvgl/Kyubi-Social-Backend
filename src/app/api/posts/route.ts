@@ -5,7 +5,7 @@ import { postInclude } from '@/lib/posts';
 import { prisma } from '@/lib/prisma';
 
 const input = z.object({
-  content: z.string().trim().min(1).max(5000),
+  content: z.string().trim().min(1).max(2000),
   visibility: z.enum(['PUBLIC', 'FOLLOWERS', 'PRIVATE']).default('PUBLIC'),
 });
 

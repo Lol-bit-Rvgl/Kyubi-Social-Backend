@@ -8,8 +8,9 @@ import { optionalSafeHttpUrl, safeHttpUrl } from '@/lib/validation';
 
 const createSchema = z.object({
   type: z.string().max(30).optional(),
-  title: z.string().trim().min(1).max(300),
-  body: z.string().trim().min(1).max(10000),
+  title: z.string().trim().max(300).optional(),
+  body: z.string().trim().max(2000).optional(),
+  content: z.string().trim().max(2000).optional(),
   visibility: z.enum(['PUBLIC', 'FOLLOWERS', 'PRIVATE', 'CIRCLE', 'PRIVATE_LINK']).default('PUBLIC'),
   // URLs externas sanitizadas: solo http(s), se rechaza javascript:/data:/etc.
   coverImageUrl: optionalSafeHttpUrl,
@@ -39,7 +40,10 @@ export const POST = withErrorHandling(async (request: Request) => {
   const body = createSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return fail('Publicación inválida', 400);
 
-  const { body: rawBody, ...rest } = body.data;
+  const rawBody = (body.data.body || body.data.content || '').trim();
+  if (!rawBody) return fail('El contenido no puede estar vacío', 400);
+
+  const { body: _b, content: _c, ...rest } = body.data;
   const post = await prisma.post.create({
     data: {
       ...rest,

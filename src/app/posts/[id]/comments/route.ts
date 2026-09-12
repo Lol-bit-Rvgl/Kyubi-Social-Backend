@@ -69,7 +69,8 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
 });
 
 const createSchema = z.object({
-  body: z.string().trim().min(1).max(4000),
+  body: z.string().trim().max(2000).optional(),
+  content: z.string().trim().max(2000).optional(),
   parentId: z.string().nullable().optional(),
   // Media sanitizada: URL solo http(s) y tipo acotado a un enum explícito.
   mediaUrl: optionalSafeHttpUrl,
@@ -88,6 +89,9 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   const body = createSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return fail('Comentario inválido');
 
+  const commentText = (body.data.body || body.data.content || '').trim();
+  if (!commentText && !body.data.mediaUrl) return fail('Comentario inválido', 400);
+
   const post = await prisma.post.findUnique({ where: { id }, select: { authorId: true, allowComments: true } });
   if (!post) return fail('Publicación no encontrada', 404);
   if (post.allowComments === false) return fail('Los comentarios están deshabilitados', 403);
@@ -105,7 +109,7 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
     data: {
       postId: id,
       userId: session.userId,
-      body: body.data.body,
+      body: commentText || '[Multimedia]',
       parentId: body.data.parentId ?? null,
       mediaUrl: body.data.mediaUrl ?? null,
       mediaType: body.data.mediaType ?? null,
@@ -119,7 +123,7 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
       actorId: session.userId,
       type: 'COMMENT',
       target: { type: 'POST', id },
-      text: body.data.body.slice(0, 200),
+      text: comment.body.slice(0, 200),
     });
   }
 
@@ -134,12 +138,12 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
         actorId: session.userId,
         type: 'COMMENT',
         target: { type: 'POST', id },
-        text: body.data.body.slice(0, 200),
+        text: comment.body.slice(0, 200),
       });
     }
   }
 
-  await notifyMentions(body.data.body, session.userId, { type: 'POST', id });
+  await notifyMentions(comment.body, session.userId, { type: 'POST', id });
 
   return ok(serializeComment(comment, { postAuthorId: post.authorId }), 201);
 });

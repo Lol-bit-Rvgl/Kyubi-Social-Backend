@@ -6,8 +6,8 @@ import { meSelect, serializeMe } from '@/lib/me';
 import { prisma } from '@/lib/prisma';
 
 const profile = z.object({
-  displayName: z.string().min(1).max(80).optional(),
-  bio: z.string().max(500).nullable().optional(),
+  displayName: z.string().min(1).max(30).optional(),
+  bio: z.string().max(300).nullable().optional(),
   avatarUrl: z.string().nullable().optional(),
   usernameColor: z.string().nullable().optional(),
   avatarFrame: z.string().nullable().optional(),

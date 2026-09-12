@@ -62,7 +62,7 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
 });
 
 const createSchema = z.object({
-  text: z.string().trim().min(1).max(4000),
+  text: z.string().trim().min(1).max(2000),
   imageUrl: z.string().nullable().optional(),
   parentId: z.string().nullable().optional(),
 });

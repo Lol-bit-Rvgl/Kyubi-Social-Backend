@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Prisma } from '@prisma/client';
+import { FollowRequestStatus, Prisma } from '@prisma/client';
 import { requireSession } from '@/lib/auth';
 import { assertCanCreateContent } from '@/lib/authz';
 import { messageInclude, serializeMessage } from '@/lib/chat';
@@ -121,6 +121,36 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
       where: { id: membership.id },
       data: { lastReadAt: new Date() },
     });
+
+    // Si es un chat directo, marcar cualquier solicitud/invitación pendiente previa entre ambos como ACCEPTED
+    const conv = await tx.conversation.findUnique({
+      where: { id },
+      select: {
+        type: true,
+        members: { select: { userId: true } },
+      },
+    });
+    if (conv?.type === 'DIRECT') {
+      const otherUserIds = conv.members
+        .map((m) => m.userId)
+        .filter((uid) => uid !== session.userId);
+      if (otherUserIds.length > 0) {
+        await tx.followRequest.updateMany({
+          where: {
+            OR: [
+              { requesterId: session.userId, targetId: { in: otherUserIds } },
+              { requesterId: { in: otherUserIds }, targetId: session.userId },
+            ],
+            status: FollowRequestStatus.PENDING,
+          },
+          data: {
+            status: FollowRequestStatus.ACCEPTED,
+            respondedAt: new Date(),
+          },
+        });
+      }
+    }
+
     return created;
   });
 

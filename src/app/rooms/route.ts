@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { FollowRequestStatus } from '@prisma/client';
 import { requireSession } from '@/lib/auth';
 import { conversationInclude, serializeConversation } from '@/lib/chat';
 import { emitToConversation, emitToUser } from '@/lib/socketio';
@@ -79,6 +80,21 @@ export const POST = withErrorHandling(async (request: Request) => {
   }
   if (!targetId) return fail('userId o username requerido');
   if (targetId === session.userId) return fail('No puedes chatear contigo mismo');
+
+  // Marcar cualquier solicitud/invitación pendiente previa entre ambos como ACCEPTED
+  await prisma.followRequest.updateMany({
+    where: {
+      OR: [
+        { requesterId: session.userId, targetId },
+        { requesterId: targetId, targetId: session.userId },
+      ],
+      status: FollowRequestStatus.PENDING,
+    },
+    data: {
+      status: FollowRequestStatus.ACCEPTED,
+      respondedAt: new Date(),
+    },
+  });
 
   const existing = await prisma.conversation.findFirst({
     where: {

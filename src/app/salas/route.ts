@@ -73,6 +73,7 @@ const createSchema = z.object({
   capacity: z.number().int().min(2).max(500).nullable().optional(),
   access: z.enum(['PUBLIC', 'PRIVATE']).optional(),
   circleId: z.string().nullable().optional(),
+  rules: z.array(z.string().trim().min(1).max(140)).max(10).optional(),
 });
 
 export const POST = withErrorHandling(async (request: Request) => {
@@ -109,6 +110,7 @@ export const POST = withErrorHandling(async (request: Request) => {
         capacity: body.data.capacity ?? null,
         access: body.data.access ?? 'PUBLIC',
         circleId: body.data.circleId ?? null,
+        rules: body.data.rules ?? [],
         hostId: session.userId,
         participants: { create: { userId: session.userId, role: 'HOST' } },
       },

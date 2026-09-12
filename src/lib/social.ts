@@ -93,6 +93,7 @@ export function serializeRoom(
     description: room.description,
     imageUrl: room.imageUrl,
     chatBackgroundUrl: room.chatBackgroundUrl,
+    rules: (room as any).rules ?? [],
     cinemaVideoId: room.cinemaVideoId,
     cinemaState: room.cinemaState,
     cinemaCurrentTime: room.cinemaCurrentTime,

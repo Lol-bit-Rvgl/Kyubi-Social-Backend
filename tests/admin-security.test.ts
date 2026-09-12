@@ -28,6 +28,7 @@ vi.mock('@/lib/prisma', () => ({ prisma: mockPrisma() }));
 vi.mock('@/lib/socketio', () => ({
   emitToUser: vi.fn(() => undefined),
   emitToRoom: vi.fn(() => undefined),
+  emitBroadcast: vi.fn(() => undefined),
 }));
 vi.mock('@/lib/notifications', () => ({
   notifyModerationWarning: vi.fn(async () => undefined),

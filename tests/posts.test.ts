@@ -24,8 +24,11 @@ vi.mock('@/lib/prisma', () => ({ prisma: mockPrisma() }));
 import { prisma } from '@/lib/prisma';
 import { POST as createPost } from '@/app/api/posts/route';
 import { GET as feed } from '@/app/api/posts/feed/route';
+import { GET as mobileFeed } from '@/app/posts/feed/route';
+import { GET as userPosts } from '@/app/posts/user/[username]/route';
 import { GET as getPost, PATCH as patchPost, DELETE as deletePost } from '@/app/api/posts/[id]/route';
 import { POST as react, DELETE as unreact } from '@/app/api/posts/[id]/react/route';
+import { canAccessPost } from '@/lib/posts';
 
 const m = prisma as unknown as PrismaMock;
 
@@ -199,5 +202,111 @@ describe('reacciones', () => {
     m.post.findUnique.mockResolvedValue(null);
     const res = await react(jsonRequest('http://localhost/api/posts/post-1/react', { method: 'POST', body: {}, token }), { params: Promise.resolve({ id: 'post-1' }) });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('filtrado de publicaciones ocultas', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('mobileFeed excluye posts con isHidden: true', async () => {
+    const token = await tokenFor();
+    m.follow.findMany.mockResolvedValue([]);
+    m.post.findMany.mockResolvedValue([]);
+    m.reaction.findMany.mockResolvedValue([]);
+    m.post.count.mockResolvedValue(0);
+
+    const res = await mobileFeed(jsonRequest('http://localhost/posts/feed?category=para_ti', { token }));
+    expect(res.status).toBe(200);
+
+    expect(m.post.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          isHidden: false,
+          visibility: 'PUBLIC',
+        }),
+      })
+    );
+  });
+
+  it('userPosts excluye isHidden para usuarios normales', async () => {
+    const token = await tokenFor({ ...baseUser(), id: 'user-viewer', email: 'v@test.com', username: 'viewer' });
+    m.user.findFirst.mockResolvedValue({ id: 'target-1', username: 'target' });
+    m.user.findUnique.mockResolvedValue({ id: 'user-viewer', role: 'USER' });
+    m.follow.findUnique.mockResolvedValue(null);
+    m.post.findMany.mockResolvedValue([]);
+    m.reaction.findMany.mockResolvedValue([]);
+    m.post.count.mockResolvedValue(0);
+
+    const res = await userPosts(
+      jsonRequest('http://localhost/posts/user/target', { token }),
+      { params: Promise.resolve({ username: 'target' }) }
+    );
+    expect(res.status).toBe(200);
+
+    expect(m.post.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          authorId: 'target-1',
+          isHidden: false,
+        }),
+      })
+    );
+  });
+
+  it('userPosts permite ver isHidden si el solicitante es el propio autor', async () => {
+    const token = await tokenFor({ ...baseUser(), id: 'user-1', email: 'u1@test.com', username: 'user_one' });
+    m.user.findUnique.mockResolvedValue({ id: 'user-1', role: 'USER' });
+    m.post.findMany.mockResolvedValue([]);
+    m.reaction.findMany.mockResolvedValue([]);
+    m.post.count.mockResolvedValue(0);
+
+    const res = await userPosts(
+      jsonRequest('http://localhost/posts/user/me', { token }),
+      { params: Promise.resolve({ username: 'me' }) }
+    );
+    expect(res.status).toBe(200);
+
+    const callWhere = m.post.findMany.mock.calls[0][0].where;
+    expect(callWhere.authorId).toBe('user-1');
+    expect(callWhere.isHidden).toBeUndefined();
+  });
+
+  it('userPosts permite ver isHidden si el solicitante es staff (MODERATOR/ADMIN)', async () => {
+    const token = await tokenFor({ ...baseUser(), id: 'mod-1', email: 'mod@test.com', username: 'moderator' });
+    m.user.findFirst.mockResolvedValue({ id: 'target-1', username: 'target' });
+    m.user.findUnique.mockResolvedValue({ id: 'mod-1', role: 'MODERATOR' });
+    m.follow.findUnique.mockResolvedValue(null);
+    m.post.findMany.mockResolvedValue([]);
+    m.reaction.findMany.mockResolvedValue([]);
+    m.post.count.mockResolvedValue(0);
+
+    const res = await userPosts(
+      jsonRequest('http://localhost/posts/user/target', { token }),
+      { params: Promise.resolve({ username: 'target' }) }
+    );
+    expect(res.status).toBe(200);
+
+    const callWhere = m.post.findMany.mock.calls[0][0].where;
+    expect(callWhere.authorId).toBe('target-1');
+    expect(callWhere.isHidden).toBeUndefined();
+  });
+
+  it('canAccessPost bloquea post oculto para usuarios regulares pero lo permite para staff o autor', async () => {
+    const hiddenPost = { ...basePost(), id: 'post-h', authorId: 'user-author', isHidden: true, visibility: 'PUBLIC' };
+    m.post.findUnique.mockResolvedValue(hiddenPost);
+
+    // Regular user
+    m.user.findUnique.mockResolvedValue({ id: 'user-regular', role: 'USER' });
+    const accessRegular = await canAccessPost('post-h', 'user-regular');
+    expect(accessRegular).toBeNull();
+
+    // Author
+    const accessAuthor = await canAccessPost('post-h', 'user-author');
+    expect(accessAuthor).toEqual(hiddenPost);
+
+    // Moderator
+    m.user.findUnique.mockResolvedValue({ id: 'user-mod', role: 'MODERATOR' });
+    const accessMod = await canAccessPost('post-h', 'user-mod');
+    expect(accessMod).toEqual(hiddenPost);
   });
 });

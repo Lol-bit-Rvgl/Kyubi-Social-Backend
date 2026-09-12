@@ -3,8 +3,16 @@ import { prisma } from './prisma';
 export async function canAccessPost(postId: string, userId: string) {
   const post = await prisma.post.findUnique({ where: { id: postId } });
   if (!post) return null;
-  // Posts ocultos por moderación: solo accesibles para su autor.
-  if (post.isHidden && post.authorId !== userId) return null;
+  // Posts ocultos por moderación: solo accesibles para su autor o miembros del staff.
+  if (post.isHidden && post.authorId !== userId) {
+    const viewer = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    const isStaff = viewer && (viewer.role === 'MODERATOR' || viewer.role === 'ADMIN' || viewer.role === 'OWNER');
+    if (!isStaff) return null;
+    return post;
+  }
   if (post.authorId === userId || post.visibility === 'PUBLIC') return post;
   if (post.visibility === 'PRIVATE') return false;
   if (post.visibility === 'CIRCLE') {

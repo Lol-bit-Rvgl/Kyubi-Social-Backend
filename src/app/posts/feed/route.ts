@@ -23,6 +23,7 @@ export const GET = withErrorHandling(async (request: Request) => {
   const followingIds = myFollowing.map((f) => f.followingId);
 
   const where: Prisma.PostWhereInput = {
+    isHidden: false,
     visibility: PostVisibility.PUBLIC,
     ...(followingOnly || category === 'siguiendo' || category === 'following'
       ? { authorId: { in: followingIds } }

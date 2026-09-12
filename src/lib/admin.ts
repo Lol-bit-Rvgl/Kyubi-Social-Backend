@@ -2,7 +2,7 @@ import { UserRole, ModerationAction, Prisma } from '@prisma/client';
 import { requireUser, hasRoleAtLeast, ROLE_RANK, type AuthUser } from './authz';
 import { fail } from './http';
 import { prisma } from './prisma';
-import { emitToUser, emitToRoom } from './socketio';
+import { emitToUser, emitToRoom, emitBroadcast } from './socketio';
 
 /** Acciones válidas del enum `ModerationAction` (validación runtime sin `as any`). */
 const VALID_MODERATION_ACTIONS: ReadonlySet<string> = new Set(
@@ -142,14 +142,13 @@ export function emitPostModeration(
   postId: string,
   payload: { action: string; reason?: string; moderatorId: string }
 ) {
-  // Es un evento global de feed: emitir a un ROOM del servidor (broadcast a
-  // todos los sockets suscritos), no a un "usuario" individual como hacía
-  // `emitToUser('moderation:feed', ...)`.
-  emitToRoom('moderation:feed', event, {
+  const data = {
     postId,
     action: payload.action,
     reason: payload.reason,
     moderatorId: payload.moderatorId,
     timestamp: new Date().toISOString(),
-  });
+  };
+  emitToRoom('moderation:feed', event, data);
+  emitBroadcast(event, data);
 }

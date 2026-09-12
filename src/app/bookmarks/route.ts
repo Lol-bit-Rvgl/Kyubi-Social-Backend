@@ -19,7 +19,15 @@ export const GET = withErrorHandling(async (request: Request) => {
   const cursor = url.searchParams.get('cursor');
 
   const bookmarks = await prisma.bookmark.findMany({
-    where: { userId: session.userId },
+    where: {
+      userId: session.userId,
+      post: {
+        OR: [
+          { isHidden: false },
+          { authorId: session.userId },
+        ],
+      },
+    },
     orderBy: { createdAt: 'desc' },
     take: limit + 1,
     skip: cursor ? 1 : 0,

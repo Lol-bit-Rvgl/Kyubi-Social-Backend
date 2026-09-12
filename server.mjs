@@ -846,6 +846,7 @@ io.on('connection', (socket) => {
   if (socket.data.userId) {
     socket.join(`user:${socket.data.userId}`);
   }
+  socket.join('moderation:feed');
 
   socket.on('conversation:join', (conversationId) => {
     if (typeof conversationId === 'string' && conversationId) {

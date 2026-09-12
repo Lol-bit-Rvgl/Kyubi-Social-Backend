@@ -20,6 +20,16 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
   const cursor = url.searchParams.get('cursor');
 
   const isMe = target.id === session.userId;
+  let isStaff = false;
+  if (!isMe) {
+    const me = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { role: true },
+    });
+    isStaff = me?.role === 'MODERATOR' || me?.role === 'ADMIN' || me?.role === 'OWNER';
+  }
+  const canSeeHidden = isMe || isStaff;
+
   const follows = isMe ? null : await prisma.follow.findUnique({
     where: { followerId_followingId: { followerId: session.userId, followingId: target.id } },
     select: { id: true },
@@ -28,6 +38,7 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
 
   const where = {
     authorId: target.id,
+    ...(canSeeHidden ? {} : { isHidden: false }),
     ...(canSeePrivate
       ? { visibility: { in: [PostVisibility.PUBLIC, PostVisibility.FOLLOWERS] } }
       : { visibility: PostVisibility.PUBLIC }),

@@ -264,10 +264,12 @@ async function fetchPublicUser(userId, fallbackUsername) {
 // Replica la semántica de POST /salas/:id/messages: ban/mute activos, sala
 // activa, pertenencia y broadcasting con payload estructurado.
 // ─────────────────────────────────────────────────────────────────────────────
-const ROOM_MESSAGE_TYPES = new Set(['TEXT', 'VOICE', 'IMAGE', 'POLL', 'SYSTEM']);
+const ROOM_MESSAGE_TYPES = new Set(['TEXT', 'VOICE', 'IMAGE', 'POLL', 'SYSTEM', 'DICE', 'RPS']);
 
 function normalizeRoomMessageType(type) {
-  return typeof type === 'string' && ROOM_MESSAGE_TYPES.has(type) ? type : 'TEXT';
+  if (typeof type !== 'string') return 'TEXT';
+  const upper = type.trim().toUpperCase();
+  return ROOM_MESSAGE_TYPES.has(upper) ? upper : 'TEXT';
 }
 
 function s(value, max) {
@@ -299,6 +301,12 @@ function roomMessagePayload(m) {
   const metadata = objectOrEmpty(m.extensions);
   const roleColor = metadata.roleColor || metadata.roleColorHex || metadata.colorHex || metadata.characterColor || null;
   const clientTempId = metadata.clientTempId || null;
+  const mediaUrl = metadata.mediaUrl || metadata.imageUrl || (m.type === 'IMAGE' || m.type === 'VOICE' ? m.body : null);
+  const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : (mediaUrl ? [mediaUrl] : []);
+  const diceResult = metadata.diceResult || null;
+  const diceEmoji = metadata.diceEmoji || null;
+  const diceName = metadata.diceName || null;
+
   return {
     id: m.id,
     roomId: m.roomId,
@@ -314,6 +322,11 @@ function roomMessagePayload(m) {
     clientTempId,
     type: m.type || 'TEXT',
     content: m.body,
+    mediaUrl,
+    attachments,
+    diceResult,
+    diceEmoji,
+    diceName,
     metadata,
     // ── Compatibilidad con el wire format existente ──
     body: m.body,
@@ -396,16 +409,23 @@ async function handleSendRoomMessage(socket, payload) {
   const roomId = typeof payload.roomId === 'string' ? payload.roomId : '';
   if (!roomId) return;
 
-  const content = typeof payload.content === 'string' ? payload.content.trim() : '';
-  if (!content) return;
-  const body = content.slice(0, 4000);
-
   const type = normalizeRoomMessageType(payload.type);
+  const rawContent = typeof payload.content === 'string' ? payload.content.trim() : (typeof payload.body === 'string' ? payload.body.trim() : '');
+  const mediaUrl = typeof payload.mediaUrl === 'string' ? payload.mediaUrl.trim() : (typeof payload.contentUrl === 'string' ? payload.contentUrl.trim() : null);
+  const content = rawContent || mediaUrl || (type === 'IMAGE' ? '[Imagen]' : type === 'VOICE' ? '[Audio]' : '');
+  if (!content && type === 'TEXT') return;
+  const body = (content || '[Multimedia]').slice(0, 4000);
+
   // Acepta tanto roleId/roleName como characterId/characterName (alias).
   const roleId = s(payload.roleId ?? payload.characterId, 64);
   const roleName = s(payload.roleName ?? payload.characterName, 80);
   const roleAvatarUrl = s(payload.roleAvatarUrl ?? payload.characterAvatarUrl, 2048);
   const metadata = objectOrEmpty(payload.metadata ?? payload.extensions);
+  if (mediaUrl && !metadata.mediaUrl) metadata.mediaUrl = mediaUrl;
+  if (Array.isArray(payload.attachments) && !metadata.attachments) metadata.attachments = payload.attachments;
+  if (payload.diceResult && !metadata.diceResult) metadata.diceResult = payload.diceResult;
+  if (payload.diceEmoji && !metadata.diceEmoji) metadata.diceEmoji = payload.diceEmoji;
+  if (payload.diceName && !metadata.diceName) metadata.diceName = payload.diceName;
 
   let prisma;
   try {

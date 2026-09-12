@@ -133,6 +133,11 @@ function serializeRoomMessage(message: {
   const ext = ((message.extensions ?? {}) as Record<string, any>) || {};
   const roleColor = (ext.roleColor || ext.roleColorHex || ext.colorHex || ext.characterColor || null) as string | null;
   const clientTempId = (ext.clientTempId || null) as string | null;
+  const mediaUrl = (ext.mediaUrl || ext.imageUrl || (message.type === 'IMAGE' || message.type === 'VOICE' ? message.body : null)) as string | null;
+  const attachments = (Array.isArray(ext.attachments) ? ext.attachments : (mediaUrl ? [mediaUrl] : [])) as string[];
+  const diceResult = (ext.diceResult || null) as string | null;
+  const diceEmoji = (ext.diceEmoji || null) as string | null;
+  const diceName = (ext.diceName || null) as string | null;
 
   return {
     id: message.id,
@@ -150,6 +155,11 @@ function serializeRoomMessage(message: {
     clientTempId,
     type: message.type,
     content: message.body,
+    mediaUrl,
+    attachments,
+    diceResult,
+    diceEmoji,
+    diceName,
     metadata: ext as Prisma.JsonObject,
 
     // ── Compatibilidad con el wire format existente ──
@@ -173,16 +183,23 @@ function serializeRoomMessage(message: {
 }
 
 const sendSchema = z.object({
-  body: z.string().trim().min(1).max(4000),
+  body: z.string().trim().max(4000).optional().default(''),
+  content: z.string().trim().max(4000).optional(),
+  mediaUrl: z.string().trim().max(2048).optional(),
+  attachments: z.array(z.string()).optional(),
 
-  // Tipo de contenido: texto por defecto; voz/imagen/encuesta para clientes ricos.
-  type: z.enum(['TEXT', 'VOICE', 'IMAGE', 'POLL']).default('TEXT'),
+  // Tipo de contenido: texto por defecto; voz, imagen, encuesta, dados, rps o sistema.
+  type: z.preprocess(
+    (v) => (typeof v === 'string' ? v.toUpperCase() : v),
+    z.enum(['TEXT', 'VOICE', 'IMAGE', 'POLL', 'SYSTEM', 'DICE', 'RPS']).default('TEXT'),
+  ),
 
   // ── Roleplay / OCs ──
   characterId: z.string().max(64).nullable().optional(),
   characterName: z.string().max(80).nullable().optional(),
   characterAvatarUrl: optionalSafeHttpUrl,
   extensions: z.record(z.string(), z.unknown()).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
 export const POST = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
@@ -207,11 +224,33 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   const body = sendSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return fail('Mensaje inválido', 400);
 
+  const rawBody =
+    body.data.body ||
+    body.data.content ||
+    body.data.mediaUrl ||
+    ((body.data.metadata?.mediaUrl ?? body.data.extensions?.mediaUrl) as string) ||
+    '';
+
+  if (!rawBody && body.data.type === 'TEXT') {
+    return fail('El contenido del mensaje no puede estar vacío', 400);
+  }
+
+  const finalBody =
+    rawBody ||
+    (body.data.type === 'IMAGE' ? '[Imagen]' : body.data.type === 'VOICE' ? '[Audio]' : '[Multimedia]');
+
+  const mergedExtensions = {
+    ...(body.data.extensions || {}),
+    ...(body.data.metadata || {}),
+    ...(body.data.mediaUrl ? { mediaUrl: body.data.mediaUrl } : {}),
+    ...(body.data.attachments ? { attachments: body.data.attachments } : {}),
+  };
+
   const isCreationMessage =
     (body.data.type as string) === 'ROOM_CREATED' ||
-    body.data.body.toLowerCase().includes('sala iniciada') ||
-    body.data.body.toLowerCase().includes('sala creada') ||
-    ((body.data.extensions as any)?.subType === 'ROOM_CREATED');
+    finalBody.toLowerCase().includes('sala iniciada') ||
+    finalBody.toLowerCase().includes('sala creada') ||
+    ((mergedExtensions as any)?.subType === 'ROOM_CREATED');
 
   if (isCreationMessage) {
     const existing = await prisma.roomMessage.findFirst({
@@ -233,13 +272,13 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
     data: {
       roomId: id,
       senderId: session.userId,
-      type: body.data.type,
-      body: body.data.body,
+      type: body.data.type as any,
+      body: finalBody,
 
       characterId: body.data.characterId ?? null,
       characterName: body.data.characterName ?? null,
       characterAvatarUrl: body.data.characterAvatarUrl ?? null,
-      extensions: (body.data.extensions ?? {}) as Prisma.InputJsonValue,
+      extensions: mergedExtensions as Prisma.InputJsonValue,
     },
     include: { sender: true },
   });

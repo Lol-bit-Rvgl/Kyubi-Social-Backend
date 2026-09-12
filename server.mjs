@@ -342,24 +342,54 @@ function activeWhere(userId) {
   };
 }
 
-async function hasActiveSanction(prisma, userId) {
-  const [ban, mute] = await Promise.all([
+async function checkUserSanction(prisma, userId) {
+  if (!userId) return null;
+
+  const now = new Date();
+
+  // 1. Comprobar si está suspendido en el modelo User
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isSuspended: true, suspendedUntil: true },
+  });
+
+  const isSuspended = Boolean(
+    user?.isSuspended && (!user.suspendedUntil || new Date(user.suspendedUntil) > now)
+  );
+
+  // 2. Comprobar si tiene ban o mute activo en tablas dedicadas
+  const [activeBan, activeMute] = await Promise.all([
     prisma.ban.findFirst({
       where: activeWhere(userId),
       orderBy: { createdAt: 'desc' },
-      select: { id: true },
+      select: { id: true, reason: true, expiresAt: true },
     }),
     prisma.mute.findFirst({
       where: activeWhere(userId),
       orderBy: { createdAt: 'desc' },
-      select: { id: true },
+      select: { id: true, reason: true, expiresAt: true },
     }),
   ]);
-  return Boolean(ban) || Boolean(mute);
+
+  const isBanned = Boolean(activeBan);
+  const isMuted = Boolean(activeMute);
+
+  if (isBanned || isSuspended || isMuted) {
+    const until = user?.suspendedUntil || activeBan?.expiresAt || activeMute?.expiresAt || null;
+    return {
+      isSanctioned: true,
+      isBanned,
+      isSuspended,
+      isMuted,
+      suspendedUntil: until ? (until instanceof Date ? until.toISOString() : String(until)) : null,
+    };
+  }
+
+  return null;
 }
 
 async function handleSendRoomMessage(socket, payload) {
-  const userId = socket.data.userId;
+  const userId = socket.userId || socket.data?.userId;
   if (!userId) return;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
 
@@ -386,7 +416,16 @@ async function handleSendRoomMessage(socket, payload) {
   }
 
   try {
-    if (await hasActiveSanction(prisma, userId)) return;
+    // Comprobar si está suspendido o silenciado
+    const sanction = await checkUserSanction(prisma, userId);
+    if (sanction) {
+      // Rechazar mensaje y notificar únicamente al emisor
+      socket.emit('error:sanctioned', {
+        message: 'Tu cuenta se encuentra suspendida o silenciada temporalmente.',
+        suspendedUntil: sanction.suspendedUntil,
+      });
+      return; // Bloquear emisión al resto de la sala
+    }
 
     const [room, participant] = await Promise.all([
       prisma.room.findUnique({
@@ -836,6 +875,8 @@ io.use((socket, nextFn) => {
       if (!payload.sub) return nextFn(new Error('Unauthorized'));
       socket.data.userId = payload.sub;
       socket.data.username = String(payload.username ?? '');
+      socket.userId = payload.sub;
+      socket.username = String(payload.username ?? '');
       nextFn();
     })
     .catch(() => nextFn(new Error('Unauthorized')));
@@ -950,6 +991,15 @@ io.on('connection', (socket) => {
 
   // Persistencia y broadcast de mensajes de sala vía Socket.IO.
   socket.on('send_room_message', (payload) => {
+    handleSendRoomMessage(socket, payload);
+  });
+  socket.on('room:message', (payload) => {
+    handleSendRoomMessage(socket, payload);
+  });
+  socket.on('chat:message', (payload) => {
+    handleSendRoomMessage(socket, payload);
+  });
+  socket.on('send_message', (payload) => {
     handleSendRoomMessage(socket, payload);
   });
 

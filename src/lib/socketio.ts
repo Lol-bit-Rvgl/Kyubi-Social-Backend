@@ -1,5 +1,16 @@
-type SocketServer = {
+export type RemoteSocketLike = {
+  id: string;
+  emit(event: string, payload: unknown): void;
+  disconnect(close?: boolean): void;
+  leave(room: string): void | Promise<void>;
+};
+
+export type SocketServer = {
   to(room: string): { emit(event: string, payload: unknown): void };
+  in(room: string): {
+    emit(event: string, payload: unknown): void;
+    fetchSockets(): Promise<RemoteSocketLike[]>;
+  };
   emit(event: string, payload: unknown): void;
 };
 

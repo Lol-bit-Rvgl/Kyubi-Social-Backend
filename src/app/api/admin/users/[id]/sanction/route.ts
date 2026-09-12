@@ -5,6 +5,7 @@ import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { createBan, createMute } from '@/lib/moderation';
 import { notifyModerationWarning } from '@/lib/notifications';
+import { getSocketIO } from '@/lib/socketio';
 
 const sanctionSchema = z.object({
   action: z.enum(['WARN', 'MUTE', 'SUSPEND', 'BAN', 'SUSPEND_USER', 'BAN_USER']),
@@ -132,18 +133,21 @@ export const POST = withErrorHandling(async (request: Request, context: RouteCon
           expiresAt,
           metadata: { ...auditMetadata, permanent: !expiresAt },
         });
-        // Mark as suspended if permanent ban
-        if (!expiresAt) {
-          await tx.user.update({
-            where: { id: targetUserId },
-            data: { isSuspended: true },
-          });
-        }
+        // Actualizar suspensión en el usuario (sea permanente o con fecha de expiración)
+        await tx.user.update({
+          where: { id: targetUserId },
+          data: {
+            isSuspended: true,
+            suspendedUntil: expiresAt,
+          },
+        });
         void ban;
         break;
       }
     }
   });
+
+  const suspendedUntilIso = expiresAt ? expiresAt.toISOString() : null;
 
   // Emitir SOLO tras commit exitoso: si la tx falla, no se notifica una
   // sanción que no existe.
@@ -153,6 +157,34 @@ export const POST = withErrorHandling(async (request: Request, context: RouteCon
     expiresAt,
     moderatorId: auth.userId,
   });
+
+  const io = getSocketIO();
+  if (io) {
+    // Enviar evento directo a las conexiones del usuario sancionado
+    io.to(`user:${targetUserId}`).emit('account:sanctioned', {
+      action: data.action,
+      reason: data.reason,
+      suspendedUntil: suspendedUntilIso,
+    });
+
+    // Si es BAN o SUSPEND_USER, forzar la salida de las salas activas y desconectar
+    if (
+      normalizedAction === 'BAN' ||
+      normalizedAction === 'SUSPEND' ||
+      rawAction === 'BAN_USER' ||
+      rawAction === 'SUSPEND_USER'
+    ) {
+      try {
+        const targetSockets = await io.in(`user:${targetUserId}`).fetchSockets();
+        for (const s of targetSockets) {
+          s.emit('force:disconnect', { reason: 'Sancionado por moderación' });
+          s.disconnect(true);
+        }
+      } catch (err) {
+        console.error('[admin:sanction] Error desconectando sockets:', err);
+      }
+    }
+  }
 
   // Notificación en el centro de notificaciones del usuario sancionado.
   // Para WARN se crea MODERATION_WARNING; el resto se cubre con user:sanctioned.

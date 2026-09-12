@@ -25,10 +25,24 @@ const mockPrisma = vi.hoisted(() => {
 });
 
 vi.mock('@/lib/prisma', () => ({ prisma: mockPrisma() }));
+const mockSocket = {
+  emit: vi.fn(),
+  disconnect: vi.fn(),
+};
+const mockIo = {
+  to: vi.fn(() => ({ emit: vi.fn() })),
+  in: vi.fn(() => ({
+    emit: vi.fn(),
+    fetchSockets: vi.fn(async () => [mockSocket]),
+  })),
+  emit: vi.fn(),
+};
+
 vi.mock('@/lib/socketio', () => ({
   emitToUser: vi.fn(() => undefined),
   emitToRoom: vi.fn(() => undefined),
   emitBroadcast: vi.fn(() => undefined),
+  getSocketIO: vi.fn(() => mockIo),
 }));
 vi.mock('@/lib/notifications', () => ({
   notifyModerationWarning: vi.fn(async () => undefined),
@@ -271,6 +285,26 @@ describe('Seguridad de /api/admin/*', () => {
         targetUserParams('bad-user')
       );
       expect(res.status).toBe(403);
+    });
+
+    it('ADMIN aplica SUSPEND y notifica/desconecta sockets en tiempo real', async () => {
+      const token = await setupAuth('ADMIN', actor('bad-user', 'USER'));
+      m.$transaction.mockImplementation((cb: unknown) =>
+        typeof cb === 'function' ? (cb as (tx: unknown) => unknown)(m) : Promise.resolve([])
+      );
+      const res = await sanctionUser(
+        jsonRequest('http://localhost/api/admin/users/bad-user/sanction', {
+          method: 'POST',
+          body: { action: 'SUSPEND', reason: 'violación temporal', durationHours: 24 },
+          token,
+        }),
+        targetUserParams('bad-user')
+      );
+      expect(res.status).toBe(200);
+      expect(mockIo.to).toHaveBeenCalledWith('user:bad-user');
+      expect(mockIo.in).toHaveBeenCalledWith('user:bad-user');
+      expect(mockSocket.emit).toHaveBeenCalledWith('force:disconnect', { reason: 'Sancionado por moderación' });
+      expect(mockSocket.disconnect).toHaveBeenCalledWith(true);
     });
 
     it('MODERATOR no puede fijar posts (ADMIN requerido)', async () => {

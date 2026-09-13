@@ -93,7 +93,7 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
     return true;
   });
 
-  const serialized = filteredMessages.map(serializeRoomMessage);
+  const serialized = filteredMessages.map((m) => serializeRoomMessage(m, session.userId));
   if (sortAsc) serialized.reverse();
 
   return ok({
@@ -116,19 +116,22 @@ type SenderPayload = {
   showGender?: boolean | null;
 };
 
-function serializeRoomMessage(message: {
-  id: string;
-  roomId: string;
-  senderId: string;
-  type: string;
-  body: string;
-  characterId?: string | null;
-  characterName?: string | null;
-  characterAvatarUrl?: string | null;
-  extensions?: Prisma.JsonValue | null;
-  createdAt: Date;
-  sender: SenderPayload;
-}) {
+function serializeRoomMessage(
+  message: {
+    id: string;
+    roomId: string;
+    senderId: string;
+    type: string;
+    body: string;
+    characterId?: string | null;
+    characterName?: string | null;
+    characterAvatarUrl?: string | null;
+    extensions?: Prisma.JsonValue | null;
+    createdAt: Date;
+    sender: SenderPayload;
+  },
+  currentUserId?: string
+) {
   const senderName = message.sender.displayName ?? message.sender.username;
   const ext = ((message.extensions ?? {}) as Record<string, any>) || {};
   const roleColor = (ext.roleColor || ext.roleColorHex || ext.colorHex || ext.characterColor || null) as string | null;
@@ -138,6 +141,70 @@ function serializeRoomMessage(message: {
   const diceResult = (ext.diceResult || null) as string | null;
   const diceEmoji = (ext.diceEmoji || null) as string | null;
   const diceName = (ext.diceName || null) as string | null;
+
+  let pollMetadata = ext;
+  let userVotedOptionId: string | null = null;
+  let userVotedOptionIndex: number | null = null;
+  let totalVotes: number | undefined = undefined;
+  let voteCounts: number[] | undefined = undefined;
+
+  if (message.type === 'POLL') {
+    const rawOptions = Array.isArray(ext.options) ? ext.options : [];
+    const votes: Record<string, string> =
+      typeof ext.votes === 'object' && ext.votes !== null ? ext.votes : {};
+
+    const options = rawOptions.map((opt: any, idx: number) => {
+      if (typeof opt === 'string') {
+        return { id: String(idx), text: opt, votes: 0 };
+      }
+      return {
+        id: String(opt?.id ?? idx),
+        text: String(opt?.text ?? ''),
+        votes: Number(opt?.votes ?? 0),
+      };
+    });
+
+    if (Object.keys(votes).length > 0) {
+      const counts: number[] = new Array(options.length).fill(0);
+      let calculatedTotal = 0;
+      for (const [, votedOptId] of Object.entries(votes)) {
+        const optIdx = options.findIndex((o) => o.id === votedOptId || o.text === votedOptId);
+        if (optIdx !== -1) {
+          counts[optIdx]++;
+          calculatedTotal++;
+        }
+      }
+      voteCounts = counts;
+      totalVotes = calculatedTotal;
+      for (let i = 0; i < options.length; i++) {
+        options[i].votes = counts[i];
+      }
+    } else {
+      voteCounts = options.map((o) => o.votes);
+      totalVotes = options.reduce((sum, o) => sum + o.votes, 0);
+    }
+
+    if (currentUserId && votes[currentUserId]) {
+      const votedOptId = votes[currentUserId];
+      const optIdx = options.findIndex((o) => o.id === votedOptId || o.text === votedOptId);
+      userVotedOptionId = votedOptId;
+      userVotedOptionIndex = optIdx !== -1 ? optIdx : null;
+    } else if (ext.userVotedOptionId) {
+      userVotedOptionId = String(ext.userVotedOptionId);
+      userVotedOptionIndex =
+        typeof ext.userVotedOptionIndex === 'number' ? ext.userVotedOptionIndex : null;
+    }
+
+    pollMetadata = {
+      ...ext,
+      options,
+      totalVotes,
+      voteCounts,
+      userVotedOptionId,
+      userVotedOptionIndex,
+      hasVoted: userVotedOptionId !== null,
+    };
+  }
 
   return {
     id: message.id,
@@ -160,13 +227,17 @@ function serializeRoomMessage(message: {
     diceResult,
     diceEmoji,
     diceName,
-    metadata: ext as Prisma.JsonObject,
+    metadata: pollMetadata as Prisma.JsonObject,
 
     // ── Compatibilidad con el wire format existente ──
     body: message.body,
     characterId: message.characterId ?? null,
     characterName: message.characterName ?? null,
     characterAvatarUrl: message.characterAvatarUrl ?? null,
+    userVotedOptionId,
+    userVotedOptionIndex,
+    totalVotes,
+    voteCounts,
     role: message.characterName
       ? {
           id: message.characterId ?? message.senderId,
@@ -176,7 +247,7 @@ function serializeRoomMessage(message: {
           color: roleColor || '#00E5FF',
         }
       : null,
-    extensions: ext as Prisma.JsonObject,
+    extensions: pollMetadata as Prisma.JsonObject,
 
     createdAt: message.createdAt.toISOString(),
   };
@@ -282,7 +353,7 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
       include: { sender: true },
     });
     if (existing && existing.sender) {
-      return ok(serializeRoomMessage(existing as any), 200);
+      return ok(serializeRoomMessage(existing as any, session.userId), 200);
     }
   }
 
@@ -301,7 +372,7 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
     include: { sender: true },
   });
 
-  emitToSala(id, 'room:message', serializeRoomMessage(message));
+  emitToSala(id, 'room:message', serializeRoomMessage(message, session.userId));
 
-  return ok(serializeRoomMessage(message), 201);
+  return ok(serializeRoomMessage(message, session.userId), 201);
 });

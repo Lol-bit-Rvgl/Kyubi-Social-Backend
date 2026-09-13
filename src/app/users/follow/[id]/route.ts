@@ -12,21 +12,17 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   const target = await prisma.user.findUnique({ where: { id }, select: { id: true } });
   if (!target) return fail('Usuario no encontrado', 404);
 
-  const existing = await prisma.follow.findUnique({
+  await prisma.follow.upsert({
     where: { followerId_followingId: { followerId: session.userId, followingId: id } },
-    select: { id: true },
+    create: { followerId: session.userId, followingId: id },
+    update: {},
   });
-  if (existing) {
-    return ok({ isFollowing: true, pendingFollow: false });
-  }
 
-  await prisma.followRequest.upsert({
-    where: { requesterId_targetId: { requesterId: session.userId, targetId: id } },
-    create: { requesterId: session.userId, targetId: id, status: FollowRequestStatus.PENDING },
-    update: { status: FollowRequestStatus.PENDING, respondedAt: null },
-  });
+  await prisma.followRequest.deleteMany({
+    where: { requesterId: session.userId, targetId: id },
+  }).catch(() => {});
 
   const followersCount = await prisma.follow.count({ where: { followingId: id } });
   const followingCount = await prisma.follow.count({ where: { followerId: session.userId } });
-  return ok({ isFollowing: false, pendingFollow: true, followersCount, followingCount });
+  return ok({ isFollowing: true, pendingFollow: false, followersCount, followingCount });
 });

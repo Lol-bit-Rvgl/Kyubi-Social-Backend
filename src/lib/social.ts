@@ -87,18 +87,30 @@ export function serializeRoom(
   opts: { myUserId?: string; isParticipant?: boolean; fullParticipants?: RoomParticipantPayload[] } = {}
 ) {
   const participants = opts.fullParticipants ?? [];
+  const myParticipant = opts.myUserId
+    ? participants.find((p) => (p as any).userId === opts.myUserId || p.user?.id === opts.myUserId)
+    : null;
+  const stageRoles = (room as any).stageRoles ?? [];
+  const myActiveCharacter =
+    (myParticipant as any)?.metadata?.activeCharacter ??
+    (Array.isArray(stageRoles)
+      ? stageRoles.find((r: any) => r.isTaken && r.takenByUserId === opts.myUserId) ?? null
+      : null);
+
   return {
     id: room.id,
     name: room.name,
     description: room.description,
     imageUrl: room.imageUrl,
     chatBackgroundUrl: room.chatBackgroundUrl,
-    rules: (room as any).rules ?? [],
+    rules: Array.isArray((room as any).rules) ? (room as any).rules : [],
     cinemaVideoId: room.cinemaVideoId,
     cinemaState: room.cinemaState,
     cinemaCurrentTime: room.cinemaCurrentTime,
     cinemaUpdatedAt: room.cinemaUpdatedAt?.toISOString() ?? null,
     currentMode: (room as any).currentMode ?? 'standard',
+    stageRoles,
+    activeCharacter: myActiveCharacter,
     host: serializeAuthor(room.host),
     status: room.status,
     access: room.access,
@@ -110,6 +122,7 @@ export function serializeRoom(
     participants: participants.map((p) => ({
       ...serializeAuthor(p.user),
       role: p.role,
+      activeCharacter: (p as any).metadata?.activeCharacter ?? null,
       joinedAt: p.joinedAt.toISOString(),
     })),
     circle: room.circle,

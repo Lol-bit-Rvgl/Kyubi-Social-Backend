@@ -15,8 +15,8 @@ const mockPrisma = vi.hoisted(() => {
       circle: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), count: vi.fn() },
       circleMember: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
       room: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), count: vi.fn() },
-      roomParticipant: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), upsert: vi.fn(), delete: vi.fn(), deleteMany: vi.fn(), count: vi.fn() },
-      roomMessage: { create: vi.fn().mockResolvedValue({ id: 'msg-1', roomId: 'room-1', senderId: 'user-1', sender: { id: 'user-1', username: 'user_one', displayName: 'User One', avatarUrl: null }, type: 'SYSTEM', body: 'User One se ha unido.', extensions: {}, createdAt: new Date() }), findMany: vi.fn(), findUnique: vi.fn() },
+      roomParticipant: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), upsert: vi.fn(), delete: vi.fn(), deleteMany: vi.fn(), count: vi.fn() },
+      roomMessage: { create: vi.fn().mockResolvedValue({ id: 'msg-1', roomId: 'room-1', senderId: 'user-1', sender: { id: 'user-1', username: 'user_one', displayName: 'User One', avatarUrl: null }, type: 'SYSTEM', body: 'User One se ha unido.', extensions: {}, createdAt: new Date() }), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
       ban: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
       mute: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
       moderationLog: { findMany: vi.fn(), create: vi.fn(), count: vi.fn() },
@@ -38,6 +38,8 @@ import { GET as listSalas, POST as createSala } from '@/app/salas/route';
 import { GET as getSala, PATCH as patchSala, DELETE as deleteSala } from '@/app/salas/[id]/route';
 import { POST as joinSala } from '@/app/salas/[id]/join/route';
 import { POST as leaveSala } from '@/app/salas/[id]/leave/route';
+import { POST as updateStageRole } from '@/app/salas/[id]/stage/role/route';
+import { POST as votePoll } from '@/app/salas/[id]/messages/[messageId]/vote/route';
 
 const m = prisma as unknown as PrismaMock;
 
@@ -330,5 +332,142 @@ describe('salas', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.alreadyLeft).toBe(true);
+  });
+
+  it('adoptar un rol en el stage persiste en metadata y stageRoles', async () => {
+    const token = await tokenFor();
+    m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', hostId: 'user-2', stageRoles: [] });
+    m.roomParticipant.findUnique.mockResolvedValue({ id: 'rp-1', roomId: 'room-1', userId: 'user-1', metadata: {} });
+    m.user.findUnique.mockResolvedValue({ id: 'user-1', username: 'user_one', displayName: 'User One' });
+    m.roomParticipant.update.mockResolvedValue({ id: 'rp-1' });
+    m.room.update.mockResolvedValue({ id: 'room-1' });
+
+    const role = { id: 'role-1', name: 'Zorro Sabio', colorHex: '#FF8800' };
+    const res = await updateStageRole(
+      jsonRequest('http://localhost/salas/room-1/stage/role', { method: 'POST', token, body: { action: 'take', role } }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.action).toBe('take');
+    expect(m.roomParticipant.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          metadata: expect.objectContaining({
+            activeCharacter: expect.objectContaining({ id: 'role-1', isTaken: true, takenByUserId: 'user-1' }),
+          }),
+        }),
+      })
+    );
+    expect(m.room.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          stageRoles: expect.arrayContaining([expect.objectContaining({ id: 'role-1', isTaken: true })]),
+        }),
+      })
+    );
+  });
+
+  it('liberar un rol en el stage limpia metadata y marca vacante en stageRoles', async () => {
+    const token = await tokenFor();
+    m.room.findUnique.mockResolvedValue({
+      id: 'room-1',
+      status: 'ACTIVE',
+      hostId: 'user-2',
+      stageRoles: [{ id: 'role-1', name: 'Zorro Sabio', isTaken: true, takenByUserId: 'user-1' }],
+    });
+    m.roomParticipant.findUnique.mockResolvedValue({
+      id: 'rp-1',
+      roomId: 'room-1',
+      userId: 'user-1',
+      metadata: { activeCharacter: { id: 'role-1' } },
+    });
+    m.user.findUnique.mockResolvedValue({ id: 'user-1', username: 'user_one', displayName: 'User One' });
+    m.roomParticipant.update.mockResolvedValue({ id: 'rp-1' });
+    m.room.update.mockResolvedValue({ id: 'room-1' });
+
+    const res = await updateStageRole(
+      jsonRequest('http://localhost/salas/room-1/stage/role', { method: 'POST', token, body: { action: 'leave', roleId: 'role-1' } }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.action).toBe('leave');
+    expect(m.roomParticipant.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          metadata: expect.objectContaining({ activeCharacter: null }),
+        }),
+      })
+    );
+  });
+
+  it('patchSala persiste y devuelve rules actualizadas', async () => {
+    const token = await tokenFor();
+    m.room.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'user-1' });
+    m.room.update.mockResolvedValue(
+      baseRoom({
+        rules: ['Regla 1: Respeto mutuo', 'Regla 2: Seguir el lore'],
+      })
+    );
+
+    const res = await patchSala(
+      jsonRequest('http://localhost/salas/room-1', {
+        method: 'PATCH',
+        token,
+        body: { rules: ['Regla 1: Respeto mutuo', 'Regla 2: Seguir el lore'] },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.rules).toEqual(['Regla 1: Respeto mutuo', 'Regla 2: Seguir el lore']);
+  });
+
+  it('votePoll registra el voto en extensions y recalcula conteos', async () => {
+    const token = await tokenFor();
+    m.roomMessage.findUnique.mockResolvedValue({
+      id: 'msg-poll-1',
+      roomId: 'room-1',
+      type: 'POLL',
+      extensions: {
+        question: '¿Cuál es tu clase favorita?',
+        options: [
+          { id: '0', text: 'Mago', votes: 1 },
+          { id: '1', text: 'Guerrero', votes: 0 },
+        ],
+        votes: { 'user-other': '0' },
+      },
+    });
+    m.roomMessage.update.mockResolvedValue({ id: 'msg-poll-1' });
+
+    const res = await votePoll(
+      jsonRequest('http://localhost/salas/room-1/messages/msg-poll-1/vote', {
+        method: 'POST',
+        token,
+        body: { optionIndex: 1 },
+      }),
+      { params: Promise.resolve({ id: 'room-1', messageId: 'msg-poll-1' }) }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.userVotedOptionId).toBe('1');
+    expect(body.userVotedOptionIndex).toBe(1);
+    expect(body.totalVotes).toBe(2);
+    expect(body.voteCounts).toEqual([1, 1]);
+    expect(m.roomMessage.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'msg-poll-1' },
+        data: expect.objectContaining({
+          extensions: expect.objectContaining({
+            totalVotes: 2,
+            voteCounts: [1, 1],
+          }),
+        }),
+      })
+    );
   });
 });

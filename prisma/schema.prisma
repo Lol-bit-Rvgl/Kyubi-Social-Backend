@@ -663,6 +663,8 @@ model Room {
   /// Modo interactivo activo en la sala (persistido para que los usuarios que
   /// entran después vean la actividad en curso): 'standard' | 'voice' | 'roleplay' | 'screening'.
   currentMode     String    @default("standard")
+  /// Roles del stage de roleplay configurados y asignados en la sala.
+  stageRoles      Json      @default("[]")
   host         User              @relation("RoomHost", fields: [hostId], references: [id], onDelete: Cascade)
   status       RoomStatus        @default(ACTIVE)
   access       RoomAccess        @default(PUBLIC)
@@ -745,6 +747,8 @@ model RoomParticipant {
   roomId   String
   userId   String
   role     String    @default("PARTICIPANT")
+  /// Metadatos del participante (ej: activeCharacter).
+  metadata Json      @default("{}")
   joinedAt DateTime  @default(now())
   leftAt   DateTime?
   room     Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)

@@ -90,12 +90,38 @@ export function serializeRoom(
   const myParticipant = opts.myUserId
     ? participants.find((p) => (p as any).userId === opts.myUserId || p.user?.id === opts.myUserId)
     : null;
-  const stageRoles = (room as any).stageRoles ?? [];
+  const rawStageRoles = (room as any).stageRoles ?? [];
+  const stageRoles = Array.isArray(rawStageRoles)
+    ? rawStageRoles.map((r: any) => {
+        const assignedUserId = r.takenByUserId ?? r.occupiedBy ?? null;
+        const assignedUsername = r.takenByUsername ?? r.occupiedByName ?? null;
+        const isOccupied = Boolean(assignedUserId && (r.isTaken || r.isOccupied));
+        return {
+          ...r,
+          isTaken: isOccupied,
+          isOccupied: isOccupied,
+          takenByUserId: isOccupied ? assignedUserId : null,
+          occupiedBy: isOccupied ? assignedUserId : null,
+          takenByUsername: isOccupied ? assignedUsername : null,
+          occupiedByName: isOccupied ? assignedUsername : null,
+        };
+      })
+    : [];
+  const myParticipantCharacter = (myParticipant as any)?.metadata?.activeCharacter ?? null;
   const myActiveCharacter =
-    (myParticipant as any)?.metadata?.activeCharacter ??
-    (Array.isArray(stageRoles)
-      ? stageRoles.find((r: any) => r.isTaken && r.takenByUserId === opts.myUserId) ?? null
-      : null);
+    myParticipantCharacter &&
+    stageRoles.some(
+      (r: any) =>
+        r.id === myParticipantCharacter.id &&
+        r.isTaken &&
+        (r.takenByUserId === opts.myUserId || r.occupiedBy === opts.myUserId)
+    )
+      ? myParticipantCharacter
+      : stageRoles.find(
+          (r: any) =>
+            r.isTaken &&
+            (r.takenByUserId === opts.myUserId || r.occupiedBy === opts.myUserId)
+        ) ?? null;
 
   return {
     id: room.id,

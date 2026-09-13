@@ -10,7 +10,7 @@ export type PrismaMock = {
   circle: { findMany: Mock; findUnique: Mock; create: Mock; update: Mock; delete: Mock; count: Mock };
   circleMember: { findMany: Mock; findUnique: Mock; create: Mock; update: Mock; delete: Mock };
   room: { findMany: Mock; findUnique: Mock; create: Mock; update: Mock; delete: Mock; count: Mock };
-  roomParticipant: { findMany: Mock; findUnique: Mock; create: Mock; update: Mock; upsert?: Mock; delete: Mock; deleteMany: Mock; count: Mock };
+  roomParticipant: { findMany: Mock; findUnique: Mock; create: Mock; update: Mock; updateMany?: Mock; upsert?: Mock; delete: Mock; deleteMany: Mock; count: Mock };
   roomMessage: { create: Mock; findMany: Mock; findUnique: Mock; update: Mock; delete: Mock };
   ban: { findFirst: Mock; findMany: Mock; findUnique: Mock; create: Mock; update: Mock; updateMany: Mock; count: Mock };
   mute: { findFirst: Mock; findMany: Mock; findUnique: Mock; create: Mock; update: Mock; updateMany: Mock; count: Mock };

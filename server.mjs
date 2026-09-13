@@ -937,8 +937,10 @@ async function handleRoomModeChange(socket, payload) {
         );
       }
 
+      const now = Date.now();
       const createdMessages = [];
-      for (const body of systemMessagesToCreate) {
+      for (let i = 0; i < systemMessagesToCreate.length; i++) {
+        const body = systemMessagesToCreate[i];
         const msg = await tx.roomMessage.create({
           data: {
             roomId,
@@ -946,6 +948,7 @@ async function handleRoomModeChange(socket, payload) {
             type: 'SYSTEM',
             body,
             extensions: { subType: 'MODE_CHANGE', previousMode, newMode: mode },
+            createdAt: new Date(now + i * 10),
           },
           include: { sender: true },
         });

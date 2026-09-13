@@ -49,8 +49,12 @@ const m = prisma as unknown as PrismaMock;
 const author = { id: 'user-1', username: 'user_one', displayName: 'User One', avatarUrl: null };
 const user = baseUser();
 
-async function tokenFor() {
-  return signAccessToken({ userId: user.id, email: user.email, username: user.username });
+async function tokenFor(userId?: string) {
+  return signAccessToken({
+    userId: userId ?? user.id,
+    email: user.email,
+    username: userId ? `user_${userId}` : user.username,
+  });
 }
 
 function baseRoom(overrides: Record<string, unknown> = {}) {
@@ -438,6 +442,159 @@ describe('salas', () => {
         }),
       })
     );
+  });
+
+  it('crear un rol en el stage (action: create) como host persiste en stageRoles y emite evento', async () => {
+    const token = await tokenFor('user-1');
+    m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', hostId: 'user-1', stageRoles: [] });
+    m.roomParticipant.findUnique.mockResolvedValue({ role: 'HOST' });
+    m.room.update.mockResolvedValue({ id: 'room-1' });
+
+    const role = {
+      id: 'role-new-1',
+      name: 'Nuevo Heroe',
+      colorHex: '#00E5FF',
+      tagline: 'Defensor de la sala',
+      description: 'Personaje de rol recién creado',
+    };
+
+    const res = await updateStageRole(
+      jsonRequest('http://localhost/salas/room-1/stage/role', {
+        method: 'POST',
+        token,
+        body: { action: 'create', role },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.action).toBe('create');
+    expect(body.role.name).toBe('Nuevo Heroe');
+    expect(body.stageRoles).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'role-new-1', name: 'Nuevo Heroe' })])
+    );
+    expect(m.room.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'room-1' },
+        data: {
+          stageRoles: expect.arrayContaining([
+            expect.objectContaining({ id: 'role-new-1', isTaken: false }),
+          ]),
+        },
+      })
+    );
+  });
+
+  it('actualizar un rol en el stage (action: update) actualiza datos y conserva isTaken', async () => {
+    const token = await tokenFor('user-1');
+    m.room.findUnique.mockResolvedValue({
+      id: 'room-1',
+      status: 'ACTIVE',
+      hostId: 'user-1',
+      stageRoles: [{ id: 'role-1', name: 'Nombre Antiguo', isTaken: true, takenByUserId: 'user-2' }],
+    });
+    m.roomParticipant.findUnique.mockResolvedValue({ role: 'HOST' });
+    m.room.update.mockResolvedValue({ id: 'room-1' });
+
+    const role = {
+      id: 'role-1',
+      name: 'Nombre Actualizado',
+      description: 'Descripcion nueva',
+    };
+
+    const res = await updateStageRole(
+      jsonRequest('http://localhost/salas/room-1/stage/role', {
+        method: 'POST',
+        token,
+        body: { action: 'update', role },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.role.name).toBe('Nombre Actualizado');
+    expect(body.role.isTaken).toBe(true);
+    expect(body.role.takenByUserId).toBe('user-2');
+  });
+
+  it('eliminar un rol en el stage (action: delete) lo remueve y limpia metadatos de participantes', async () => {
+    const token = await tokenFor('user-1');
+    m.room.findUnique.mockResolvedValue({
+      id: 'room-1',
+      status: 'ACTIVE',
+      hostId: 'user-1',
+      stageRoles: [{ id: 'role-del', name: 'Rol a Borrar' }],
+    });
+    m.roomParticipant.findUnique.mockResolvedValue({ role: 'HOST' });
+    m.roomParticipant.findMany.mockResolvedValue([
+      { id: 'part-1', metadata: { activeCharacter: { id: 'role-del' } } },
+    ]);
+    m.roomParticipant.update.mockResolvedValue({ id: 'part-1' });
+    m.room.update.mockResolvedValue({ id: 'room-1' });
+
+    const res = await updateStageRole(
+      jsonRequest('http://localhost/salas/room-1/stage/role', {
+        method: 'POST',
+        token,
+        body: { action: 'delete', roleId: 'role-del' },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.action).toBe('delete');
+    expect(body.stageRoles).toEqual([]);
+    expect(m.roomParticipant.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'part-1' },
+        data: expect.objectContaining({
+          metadata: expect.objectContaining({ activeCharacter: null }),
+        }),
+      })
+    );
+  });
+
+  it('usuario sin permisos de moderador/host recibe 403 al crear o eliminar roles', async () => {
+    const token = await tokenFor('user-guest');
+    m.room.findUnique.mockResolvedValue({
+      id: 'room-1',
+      status: 'ACTIVE',
+      hostId: 'user-host',
+      stageRoles: [],
+    });
+    m.roomParticipant.findUnique.mockResolvedValue({ role: 'MEMBER' });
+
+    const resCreate = await updateStageRole(
+      jsonRequest('http://localhost/salas/room-1/stage/role', {
+        method: 'POST',
+        token,
+        body: {
+          action: 'create',
+          role: { id: 'role-hack', name: 'Rol Ilegal' },
+        },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+    expect(resCreate.status).toBe(403);
+
+    const resDelete = await updateStageRole(
+      jsonRequest('http://localhost/salas/room-1/stage/role', {
+        method: 'POST',
+        token,
+        body: {
+          action: 'delete',
+          roleId: 'role-1',
+        },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+    expect(resDelete.status).toBe(403);
   });
 
   it('patchSala persiste y devuelve rules actualizadas', async () => {

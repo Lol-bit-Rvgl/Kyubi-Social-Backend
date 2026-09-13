@@ -103,8 +103,10 @@ async function handleModeChange(request: Request, roomId: string) {
       );
     }
 
+    const now = Date.now();
     const createdMessages = [];
-    for (const msgBody of systemMessagesToCreate) {
+    for (let i = 0; i < systemMessagesToCreate.length; i++) {
+      const msgBody = systemMessagesToCreate[i];
       const msg = await tx.roomMessage.create({
         data: {
           roomId,
@@ -112,6 +114,7 @@ async function handleModeChange(request: Request, roomId: string) {
           type: 'SYSTEM',
           body: msgBody,
           extensions: { subType: 'MODE_CHANGE', previousMode, newMode: targetMode },
+          createdAt: new Date(now + i * 10),
         },
         include: { sender: true },
       });

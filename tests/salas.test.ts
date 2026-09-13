@@ -15,7 +15,8 @@ const mockPrisma = vi.hoisted(() => {
       circle: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), count: vi.fn() },
       circleMember: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
       room: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), count: vi.fn() },
-      roomParticipant: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), delete: vi.fn(), deleteMany: vi.fn(), count: vi.fn() },
+      roomParticipant: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), upsert: vi.fn(), delete: vi.fn(), deleteMany: vi.fn(), count: vi.fn() },
+      roomMessage: { create: vi.fn().mockResolvedValue({ id: 'msg-1', roomId: 'room-1', senderId: 'user-1', sender: { id: 'user-1', username: 'user_one', displayName: 'User One', avatarUrl: null }, type: 'SYSTEM', body: 'User One se ha unido.', extensions: {}, createdAt: new Date() }), findMany: vi.fn(), findUnique: vi.fn() },
       ban: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
       mute: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
       moderationLog: { findMany: vi.fn(), create: vi.fn(), count: vi.fn() },
@@ -264,10 +265,10 @@ describe('salas', () => {
 
   it('unirse crea participante y devuelve la sala actualizada', async () => {
     const token = await tokenFor();
-    m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', access: 'PUBLIC', capacity: null, circleId: null });
+    m.room.findUnique.mockResolvedValueOnce({ id: 'room-1', hostId: 'user-2', status: 'ACTIVE', access: 'PUBLIC', capacity: null, circleId: null });
     m.roomParticipant.findUnique.mockResolvedValue(null);
     m.roomParticipant.create.mockResolvedValue({ id: 'rp-2' });
-    m.room.findUnique.mockResolvedValue(baseRoom({ _count: { participants: 2 } }));
+    m.room.findUnique.mockResolvedValueOnce(baseRoom({ hostId: 'user-2', _count: { participants: 2 } }));
 
     const res = await joinSala(jsonRequest('http://localhost/salas/room-1/join', { method: 'POST', token }), { params: Promise.resolve({ id: 'room-1' }) });
     expect(res.status).toBe(200);
@@ -280,9 +281,9 @@ describe('salas', () => {
 
   it('unirse siendo ya participante no duplica', async () => {
     const token = await tokenFor();
-    m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', access: 'PUBLIC', capacity: null, circleId: null });
+    m.room.findUnique.mockResolvedValueOnce({ id: 'room-1', hostId: 'user-2', status: 'ACTIVE', access: 'PUBLIC', capacity: null, circleId: null });
     m.roomParticipant.findUnique.mockResolvedValue({ id: 'rp-1' });
-    m.room.findUnique.mockResolvedValue(baseRoom());
+    m.room.findUnique.mockResolvedValueOnce(baseRoom({ hostId: 'user-2' }));
 
     const res = await joinSala(jsonRequest('http://localhost/salas/room-1/join', { method: 'POST', token }), { params: Promise.resolve({ id: 'room-1' }) });
     expect(res.status).toBe(200);

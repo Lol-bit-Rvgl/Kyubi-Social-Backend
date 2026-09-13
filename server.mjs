@@ -17,7 +17,8 @@ process.on('unhandledRejection', (reason) => {
   console.error('[server] unhandledRejection:', reason);
 });
 process.on('uncaughtException', (err) => {
-  console.error('[server] uncaughtException:', err);
+  console.error('[server][FATAL] uncaughtException:', err);
+  process.exit(1);
 });
 
 const dev = process.env.NODE_ENV !== 'production';

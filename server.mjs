@@ -1138,12 +1138,40 @@ io.on('connection', (socket) => {
   }
   socket.join('moderation:feed');
 
-  socket.on('conversation:join', (conversationId) => {
-    if (typeof conversationId === 'string' && conversationId) {
+  socket.on('conversation:join', async (data) => {
+    const conversationId =
+      typeof data === 'string' ? data : (typeof data === 'object' && data !== null ? data.conversationId : null);
+    const userId = socket.userId || socket.data?.userId;
+
+    if (!conversationId || typeof conversationId !== 'string' || !userId) {
+      socket.emit('conversation:error', { error: 'No autorizado para unirse a esta conversación' });
+      return;
+    }
+
+    try {
+      const membership = await prisma.conversationMember.findUnique({
+        where: {
+          conversationId_userId: {
+            conversationId,
+            userId,
+          },
+        },
+      });
+
+      if (!membership) {
+        socket.emit('conversation:error', { error: 'No autorizado para unirse a esta conversación' });
+        return;
+      }
+
       socket.join(`conversation:${conversationId}`);
+    } catch (err) {
+      console.error('[conversation:join] error validating membership:', err.message);
+      socket.emit('conversation:error', { error: 'Error al unirse a la conversación' });
     }
   });
-  socket.on('conversation:leave', (conversationId) => {
+  socket.on('conversation:leave', (data) => {
+    const conversationId =
+      typeof data === 'string' ? data : (typeof data === 'object' && data !== null ? data.conversationId : null);
     if (typeof conversationId === 'string' && conversationId) {
       socket.leave(`conversation:${conversationId}`);
     }

@@ -694,6 +694,167 @@ describe('salas', () => {
       expect(data.replyTo.authorName).toBe('Zorro Sabio');
     });
 
+    it('rechaza mensaje con mediaUrl de protocolo inseguro (javascript:, data:)', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', hostId: 'user-1' });
+      m.roomParticipant.findUnique.mockResolvedValue({ id: 'part-1', role: 'MEMBER' });
+
+      const resJs = await postMessage(
+        jsonRequest('http://localhost/salas/room-1/messages', {
+          method: 'POST',
+          token,
+          body: {
+            content: 'Hack url',
+            mediaUrl: 'javascript:alert(1)',
+          },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+      expect(resJs.status).toBe(400);
+
+      const resData = await postMessage(
+        jsonRequest('http://localhost/salas/room-1/messages', {
+          method: 'POST',
+          token,
+          body: {
+            content: 'Hack data',
+            mediaUrl: 'data:text/html,<script>alert(1)</script>',
+          },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+      expect(resData.status).toBe(400);
+    });
+
+    it('acepta mensaje con mediaUrl válida http/https', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', hostId: 'user-1' });
+      m.roomParticipant.findUnique.mockResolvedValue({ id: 'part-1', role: 'MEMBER' });
+      m.roomMessage.create.mockResolvedValue({
+        id: 'msg-media',
+        roomId: 'room-1',
+        senderId: 'user-1',
+        type: 'IMAGE',
+        body: 'https://example.com/imagen.png',
+        characterId: null,
+        characterName: null,
+        characterAvatarUrl: null,
+        extensions: { mediaUrl: 'https://example.com/imagen.png' },
+        createdAt: new Date(),
+        sender: author,
+      });
+
+      const res = await postMessage(
+        jsonRequest('http://localhost/salas/room-1/messages', {
+          method: 'POST',
+          token,
+          body: {
+            type: 'IMAGE',
+            mediaUrl: 'https://example.com/imagen.png',
+          },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+      expect(res.status).toBe(201);
+    });
+
+    it('rechaza mensaje con más de 5 adjuntos', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', hostId: 'user-1' });
+      m.roomParticipant.findUnique.mockResolvedValue({ id: 'part-1', role: 'MEMBER' });
+
+      const res = await postMessage(
+        jsonRequest('http://localhost/salas/room-1/messages', {
+          method: 'POST',
+          token,
+          body: {
+            content: 'Muchos adjuntos',
+            attachments: [
+              'https://example.com/1.png',
+              'https://example.com/2.png',
+              'https://example.com/3.png',
+              'https://example.com/4.png',
+              'https://example.com/5.png',
+              'https://example.com/6.png',
+            ],
+          },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it('rechaza mensaje con adjunto de protocolo inseguro', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', hostId: 'user-1' });
+      m.roomParticipant.findUnique.mockResolvedValue({ id: 'part-1', role: 'MEMBER' });
+
+      const res = await postMessage(
+        jsonRequest('http://localhost/salas/room-1/messages', {
+          method: 'POST',
+          token,
+          body: {
+            content: 'Adjunto malo',
+            attachments: ['https://example.com/1.png', 'javascript:alert(1)'],
+          },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it('rechaza mensaje con extensions que superen 16KB', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', hostId: 'user-1' });
+      m.roomParticipant.findUnique.mockResolvedValue({ id: 'part-1', role: 'MEMBER' });
+
+      const largePayload = 'A'.repeat(17000);
+      const res = await postMessage(
+        jsonRequest('http://localhost/salas/room-1/messages', {
+          method: 'POST',
+          token,
+          body: {
+            content: 'Payload gigante',
+            extensions: { bigData: largePayload },
+          },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it('acepta mensaje con extensions de tamaño seguro (<= 16KB)', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', hostId: 'user-1' });
+      m.roomParticipant.findUnique.mockResolvedValue({ id: 'part-1', role: 'MEMBER' });
+      m.roomMessage.create.mockResolvedValue({
+        id: 'msg-ext',
+        roomId: 'room-1',
+        senderId: 'user-1',
+        type: 'TEXT',
+        body: 'Payload seguro',
+        characterId: null,
+        characterName: null,
+        characterAvatarUrl: null,
+        extensions: { clientTempId: 'temp-123' },
+        createdAt: new Date(),
+        sender: author,
+      });
+
+      const res = await postMessage(
+        jsonRequest('http://localhost/salas/room-1/messages', {
+          method: 'POST',
+          token,
+          body: {
+            content: 'Payload seguro',
+            extensions: { clientTempId: 'temp-123' },
+          },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+      expect(res.status).toBe(201);
+    });
+
     it('editar un mensaje por primera vez tiene éxito y marca isEdited=true, editCount=1', async () => {
       const token = await tokenFor();
       m.roomMessage.findUnique.mockResolvedValue({

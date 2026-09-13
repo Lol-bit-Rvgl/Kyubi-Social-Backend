@@ -9,6 +9,7 @@ const mockPrisma = vi.hoisted(() => {
       user: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn() },
       roomParticipant: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), delete: vi.fn(), deleteMany: vi.fn(), count: vi.fn() },
       room: { findUnique: vi.fn() },
+      circleMember: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
       ban: { findFirst: vi.fn() },
       mute: { findFirst: vi.fn() },
     };
@@ -55,8 +56,9 @@ describe('voz — tokens LiveKit', () => {
     // arranca sin ban/mute activos.
     m.ban.findFirst.mockImplementation(() => undefined);
     m.mute.findFirst.mockImplementation(() => undefined);
+    m.circleMember.findUnique.mockResolvedValue(null);
     // La ruta de voz consulta la sala para verificar que existe.
-    m.room.findUnique.mockResolvedValue({ id: 'room-1' });
+    m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', access: 'PUBLIC', hostId: 'user-host' });
   });
 
   /** Mock de la consulta de suspensión de getBlockingSanction (usuario libre). */
@@ -118,6 +120,114 @@ describe('voz — tokens LiveKit', () => {
           metadata: { avatarUrl: 'https://cdn/ava.png', role: 'HOST' },
         })
       );
+    });
+
+    it('400 si la sala ha terminado (status !== ACTIVE)', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ENDED', access: 'PUBLIC', hostId: 'user-2' });
+      m.user.findUnique.mockResolvedValue({ id: 'user-1', displayName: 'User One', username: 'user_one', avatarUrl: null });
+
+      const res = await salaVoiceToken(jsonRequest('http://localhost/salas/room-1/voice/token', { method: 'POST', token }), {
+        params: Promise.resolve({ id: 'room-1' }),
+      });
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.error).toBe('La sala ha terminado');
+    });
+
+    it('403 si el participante tiene el micrófono silenciado en la sala (metadata.isMuted)', async () => {
+      const token = await tokenFor();
+      m.roomParticipant.findUnique.mockResolvedValue({ role: 'PARTICIPANT', metadata: { isMuted: true } });
+      m.user.findUnique.mockResolvedValue({ id: 'user-1', displayName: 'User One', username: 'user_one', avatarUrl: null });
+
+      const res = await salaVoiceToken(jsonRequest('http://localhost/salas/room-1/voice/token', { method: 'POST', token }), {
+        params: Promise.resolve({ id: 'room-1' }),
+      });
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toBe('Tu usuario tiene el micrófono restringido o sancionado');
+    });
+
+    it('403 si la sala es PRIVATE y el usuario no es host, ni participante, ni miembro del círculo', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({
+        id: 'room-1',
+        status: 'ACTIVE',
+        access: 'PRIVATE',
+        hostId: 'user-other',
+        circleId: 'circle-1',
+      });
+      m.roomParticipant.findUnique.mockResolvedValue(null);
+      m.circleMember.findUnique.mockResolvedValue(null);
+      m.user.findUnique.mockResolvedValue({ id: 'user-1', displayName: 'User One', username: 'user_one', avatarUrl: null });
+
+      const res = await salaVoiceToken(jsonRequest('http://localhost/salas/room-1/voice/token', { method: 'POST', token }), {
+        params: Promise.resolve({ id: 'room-1' }),
+      });
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toBe('No tienes acceso a la sala de voz de este círculo/sala privada');
+    });
+
+    it('200 si la sala es PRIVATE y el usuario es el host', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({
+        id: 'room-1',
+        status: 'ACTIVE',
+        access: 'PRIVATE',
+        hostId: 'user-1',
+        circleId: null,
+      });
+      m.roomParticipant.findUnique.mockResolvedValue(null);
+      m.user.findUnique.mockResolvedValue({ id: 'user-1', displayName: 'User One', username: 'user_one', avatarUrl: null });
+
+      const res = await salaVoiceToken(jsonRequest('http://localhost/salas/room-1/voice/token', { method: 'POST', token }), {
+        params: Promise.resolve({ id: 'room-1' }),
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.token).toBe('jwt-livekit');
+    });
+
+    it('200 si la sala es PRIVATE y el usuario es participante admitido', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({
+        id: 'room-1',
+        status: 'ACTIVE',
+        access: 'PRIVATE',
+        hostId: 'user-other',
+        circleId: null,
+      });
+      m.roomParticipant.findUnique.mockResolvedValue({ role: 'PARTICIPANT', metadata: {} });
+      m.user.findUnique.mockResolvedValue({ id: 'user-1', displayName: 'User One', username: 'user_one', avatarUrl: null });
+
+      const res = await salaVoiceToken(jsonRequest('http://localhost/salas/room-1/voice/token', { method: 'POST', token }), {
+        params: Promise.resolve({ id: 'room-1' }),
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.token).toBe('jwt-livekit');
+    });
+
+    it('200 si la sala es PRIVATE y el usuario es miembro del círculo asociado', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({
+        id: 'room-1',
+        status: 'ACTIVE',
+        access: 'PRIVATE',
+        hostId: 'user-other',
+        circleId: 'circle-1',
+      });
+      m.roomParticipant.findUnique.mockResolvedValue(null);
+      m.circleMember.findUnique.mockResolvedValue({ id: 'cm-1' });
+      m.user.findUnique.mockResolvedValue({ id: 'user-1', displayName: 'User One', username: 'user_one', avatarUrl: null });
+
+      const res = await salaVoiceToken(jsonRequest('http://localhost/salas/room-1/voice/token', { method: 'POST', token }), {
+        params: Promise.resolve({ id: 'room-1' }),
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.token).toBe('jwt-livekit');
     });
   });
 

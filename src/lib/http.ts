@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 
 export const ok = (data: unknown, status = 200) => NextResponse.json(data, { status });
-export const fail = (message: string, status = 400) => NextResponse.json({ message }, { status });
+export const fail = (message: string, status = 400) => NextResponse.json({ message, error: message }, { status });
 
 /**
  * Request tracking: reutiliza `x-request-id` entrante (inyectado por un proxy

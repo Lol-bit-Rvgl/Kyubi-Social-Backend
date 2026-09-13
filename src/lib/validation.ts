@@ -10,18 +10,20 @@ import { z } from 'zod';
  */
 export const safeHttpUrl = z
   .string()
+  .trim()
   .url()
   .max(2048)
   .refine(
-    (value) => {
+    (url) => {
+      if (!url.startsWith('http://') && !url.startsWith('https://')) return false;
       try {
-        const url = new URL(value);
-        return url.protocol === 'http:' || url.protocol === 'https:';
+        const parsed = new URL(url);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
       } catch {
         return false;
       }
     },
-    { message: 'URL inválida o con esquema no permitido' },
+    { message: 'Solo se permiten URLs HTTP o HTTPS seguras' },
   );
 
 /** Versión nullable/opcional lista para usar en schemas de payloads. */

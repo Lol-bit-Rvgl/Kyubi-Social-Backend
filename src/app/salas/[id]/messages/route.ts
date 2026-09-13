@@ -6,7 +6,7 @@ import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { emitToSala } from '@/lib/socketio';
 import { serializeAuthor } from '@/lib/serialize';
-import { optionalSafeHttpUrl } from '@/lib/validation';
+import { optionalSafeHttpUrl, safeHttpUrl } from '@/lib/validation';
 
 export const GET = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireSession(request);
@@ -265,8 +265,8 @@ function serializeRoomMessage(
 const sendSchema = z.object({
   body: z.string().trim().max(4000).optional().default(''),
   content: z.string().trim().max(4000).optional(),
-  mediaUrl: z.string().trim().max(2048).optional(),
-  attachments: z.array(z.string()).optional(),
+  mediaUrl: optionalSafeHttpUrl,
+  attachments: z.array(safeHttpUrl).max(5, 'Máximo 5 adjuntos por mensaje').optional(),
 
   // Tipo de contenido: texto por defecto; voz, imagen, encuesta, dados, rps o sistema.
   type: z.preprocess(
@@ -288,8 +288,22 @@ const sendSchema = z.object({
     })
     .nullable()
     .optional(),
-  extensions: z.record(z.string(), z.unknown()).nullable().optional(),
-  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  extensions: z
+    .record(z.string(), z.any())
+    .nullable()
+    .optional()
+    .refine(
+      (val) => !val || JSON.stringify(val).length <= 16384,
+      { message: 'El payload de metadatos/extensiones excede el límite seguro de 16KB' },
+    ),
+  metadata: z
+    .record(z.string(), z.any())
+    .nullable()
+    .optional()
+    .refine(
+      (val) => !val || JSON.stringify(val).length <= 16384,
+      { message: 'El payload de metadatos/extensiones excede el límite seguro de 16KB' },
+    ),
 });
 
 export const POST = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {

@@ -6,11 +6,11 @@ import { emitToSala } from '@/lib/socketio';
 
 const roleSchema = z.object({
   id: z.string().min(1),
-  name: z.string().min(1).max(80),
+  name: z.string().trim().min(1).max(20),
   avatarUrl: z.string().nullable().optional(),
   colorHex: z.string().optional().default('#00E5FF'),
-  tagline: z.string().optional().default(''),
-  description: z.string().optional().default(''),
+  tagline: z.string().trim().max(30).optional().default(''),
+  description: z.string().trim().max(300).optional().default(''),
   language: z.string().optional().default('Español'),
   isTaken: z.boolean().optional().default(false),
   takenByUserId: z.string().nullable().optional(),

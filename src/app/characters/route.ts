@@ -14,12 +14,12 @@ const stringList = (max = 40) => z.array(z.string().trim().min(1).max(max)).max(
  * (abilities/weaknesses/universes/genres) se guardan como JSON.
  */
 const createSchema = z.object({
-  name: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(20),
   alias: z.string().trim().max(40).nullable().optional(),
-  tagline: z.string().trim().max(140).nullable().optional(),
+  tagline: z.string().trim().max(30).nullable().optional(),
   avatarUrl: z.string().max(2048).nullable().optional(),
   bannerUrl: z.string().max(2048).nullable().optional(),
-  description: z.string().trim().max(2000).nullable().optional(),
+  description: z.string().trim().max(300).nullable().optional(),
   lore: z.string().trim().max(20000).nullable().optional(),
   appearance: z.string().trim().max(20000).nullable().optional(),
   abilities: stringList(),

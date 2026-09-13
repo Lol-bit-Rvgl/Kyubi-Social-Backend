@@ -40,6 +40,7 @@ import { POST as joinSala } from '@/app/salas/[id]/join/route';
 import { POST as leaveSala } from '@/app/salas/[id]/leave/route';
 import { POST as updateStageRole } from '@/app/salas/[id]/stage/role/route';
 import { POST as votePoll } from '@/app/salas/[id]/messages/[messageId]/vote/route';
+import { PATCH as patchMode } from '@/app/salas/[id]/mode/route';
 
 const m = prisma as unknown as PrismaMock;
 
@@ -502,5 +503,138 @@ describe('salas', () => {
         }),
       })
     );
+  });
+
+  it('patchMode realiza transición atómica de screening a roleplay limpiando cine y creando mensajes', async () => {
+    const token = await tokenFor();
+    const existingRoom = baseRoom({
+      currentMode: 'screening',
+      cinemaVideoId: 'video-123',
+      cinemaState: 'PLAYING',
+      cinemaCurrentTime: 42.5,
+    });
+    const updatedRoom = {
+      ...existingRoom,
+      currentMode: 'roleplay',
+      cinemaVideoId: null,
+      cinemaState: 'STOPPED',
+      cinemaCurrentTime: 0,
+    };
+
+    m.room.findUnique.mockResolvedValue(existingRoom);
+    m.roomParticipant.findUnique.mockResolvedValue({ id: 'part-1', role: 'HOST' });
+    m.room.update.mockResolvedValue(updatedRoom);
+
+    const res = await patchMode(
+      jsonRequest('http://localhost/salas/room-1/mode', {
+        method: 'PATCH',
+        token,
+        body: { mode: 'roleplay' },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.currentMode).toBe('roleplay');
+    expect(body.cinemaVideoId).toBeNull();
+    expect(body.cinemaState).toBe('STOPPED');
+
+    expect(m.room.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'room-1' },
+        data: expect.objectContaining({
+          currentMode: 'roleplay',
+          cinemaVideoId: null,
+          cinemaState: 'STOPPED',
+          cinemaCurrentTime: 0,
+        }),
+      })
+    );
+
+    // Se crearon mensajes de sistema: fin de cine e inicio de roleplay
+    expect(m.roomMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          body: '[Sistema]: Sala de cine finalizada.',
+          type: 'SYSTEM',
+        }),
+      })
+    );
+    expect(m.roomMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          body: '[Sistema]: Sesión de roleplay iniciada.',
+          type: 'SYSTEM',
+        }),
+      })
+    );
+  });
+
+  it('updateStageRole rechaza nombres de más de 20 chars o descripciones mayores a 300', async () => {
+    const token = await tokenFor();
+    m.room.findUnique.mockResolvedValue(baseRoom());
+
+    // Nombre mayor a 20 chars -> debe fallar 400
+    const resNameOver = await updateStageRole(
+      jsonRequest('http://localhost/salas/room-1/stage/role', {
+        method: 'POST',
+        token,
+        body: {
+          action: 'take',
+          role: {
+            id: 'role-1',
+            name: 'NombreDemasiadoLargoQueExcedeVeinteCaracteres',
+            tagline: 'Tagline normal',
+            description: 'Desc normal',
+          },
+        },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+    expect(resNameOver.status).toBe(400);
+
+    // Descripción mayor a 300 chars -> debe fallar 400
+    const resDescOver = await updateStageRole(
+      jsonRequest('http://localhost/salas/room-1/stage/role', {
+        method: 'POST',
+        token,
+        body: {
+          action: 'take',
+          role: {
+            id: 'role-1',
+            name: 'Nombre Valido',
+            tagline: 'Tagline normal',
+            description: 'A'.repeat(301),
+          },
+        },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+    expect(resDescOver.status).toBe(400);
+
+    // Rol canónico válido (20, 30, 300) -> pasa
+    m.roomParticipant.findUnique.mockResolvedValue({ id: 'part-1', metadata: {} });
+    m.roomParticipant.update.mockResolvedValue({ id: 'part-1' });
+    m.room.update.mockResolvedValue(baseRoom());
+    m.user.findUnique.mockResolvedValue({ id: 'user-1', username: 'user_one' });
+
+    const resValid = await updateStageRole(
+      jsonRequest('http://localhost/salas/room-1/stage/role', {
+        method: 'POST',
+        token,
+        body: {
+          action: 'take',
+          role: {
+            id: 'role-1',
+            name: 'A'.repeat(20),
+            tagline: 'B'.repeat(30),
+            description: 'C'.repeat(300),
+          },
+        },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+    expect(resValid.status).toBe(200);
   });
 });

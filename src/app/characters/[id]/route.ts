@@ -13,12 +13,12 @@ const stringList = (max = 40) =>
  */
 const updateSchema = z
   .object({
-    name: z.string().trim().min(1).max(80),
+    name: z.string().trim().min(1).max(20),
     alias: z.string().trim().max(40).nullable(),
-    tagline: z.string().trim().max(140).nullable(),
+    tagline: z.string().trim().max(30).nullable(),
     avatarUrl: z.string().max(2048).nullable(),
     bannerUrl: z.string().max(2048).nullable(),
-    description: z.string().trim().max(2000).nullable(),
+    description: z.string().trim().max(300).nullable(),
     lore: z.string().trim().max(20000).nullable(),
     appearance: z.string().trim().max(20000).nullable(),
     abilities: stringList(),

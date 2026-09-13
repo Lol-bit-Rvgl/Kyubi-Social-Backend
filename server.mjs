@@ -742,48 +742,109 @@ async function handleRoomModeChange(socket, payload) {
     }
     const prisma = await matchPrisma();
 
-    // ── Transición estricta: no se puede saltar de una actividad a otra sin
-    //    pasar primero por 'standard'.
-    const current = await prisma.room.findUnique({
-      where: { id: roomId },
-      select: { currentMode: true },
-    });
-    const previousMode = normalizeRoomMode(current?.currentMode);
-    if (ACTIVE_MODES.has(previousMode) && mode !== 'standard' && mode !== previousMode) {
-      console.log(
-        `[MODE_DEBUG_SERVER] Transición estricta rechazada: sala:${roomId} activo=${previousMode}, solicitado=${mode}`,
-      );
-      socket.emit('room:mode_rejected', {
-        roomId,
-        currentMode: previousMode,
-        requestedMode: mode,
-        reason: 'Debes finalizar la actividad actual antes de iniciar otra',
+    const txResult = await prisma.$transaction(async (tx) => {
+      const current = await tx.room.findUnique({
+        where: { id: roomId },
+        select: {
+          id: true,
+          currentMode: true,
+          cinemaVideoId: true,
+          cinemaState: true,
+          cinemaCurrentTime: true,
+        },
       });
-      return;
-    }
+      if (!current) return null;
 
-    const updateData = { currentMode: mode };
-    const videoId = s(payload.videoId, 128);
-    if (videoId) updateData.cinemaVideoId = videoId;
-    if (payload.cinemaState && typeof payload.cinemaState === 'string') {
-      updateData.cinemaState = payload.cinemaState;
-    }
-    if (typeof payload.currentTime === 'number' && Number.isFinite(payload.currentTime)) {
-      updateData.cinemaCurrentTime = payload.currentTime;
-    }
+      const previousMode = normalizeRoomMode(current.currentMode);
+      const systemMessagesToCreate = [];
 
-    const updatedRoom = await prisma.room.update({
-      where: { id: roomId },
-      data: updateData,
-      select: {
-        id: true,
-        currentMode: true,
-        cinemaVideoId: true,
-        cinemaState: true,
-        cinemaCurrentTime: true,
-        cinemaUpdatedAt: true,
-      },
+      // Mensaje de fin de actividad anterior si era activa y cambia el modo
+      if (ACTIVE_MODES.has(previousMode) && mode !== previousMode) {
+        systemMessagesToCreate.push(
+          MODE_SYSTEM_TEXT_END[previousMode] ?? '[Sistema]: Actividad finalizada.'
+        );
+      }
+
+      // Mensaje de inicio de nueva actividad si es activa y cambia el modo
+      if (ACTIVE_MODES.has(mode) && mode !== previousMode) {
+        systemMessagesToCreate.push(
+          MODE_SYSTEM_TEXT[mode] ?? '[Sistema]: Actividad iniciada.'
+        );
+      }
+
+      const createdMessages = [];
+      for (const body of systemMessagesToCreate) {
+        const msg = await tx.roomMessage.create({
+          data: {
+            roomId,
+            senderId: userId,
+            type: 'SYSTEM',
+            body,
+            extensions: { subType: 'MODE_CHANGE', previousMode, newMode: mode },
+          },
+          include: { sender: true },
+        });
+        createdMessages.push(msg);
+      }
+
+      const updateData = { currentMode: mode };
+      if (mode === 'screening') {
+        const videoId = s(payload.videoId, 128);
+        if (videoId) updateData.cinemaVideoId = videoId;
+        if (payload.cinemaState && typeof payload.cinemaState === 'string') {
+          updateData.cinemaState = payload.cinemaState;
+        }
+        if (typeof payload.currentTime === 'number' && Number.isFinite(payload.currentTime)) {
+          updateData.cinemaCurrentTime = payload.currentTime;
+        }
+        updateData.cinemaUpdatedAt = new Date();
+      } else if (previousMode === 'screening' && mode !== 'screening') {
+        // Limpieza atómica de cine al salir de screening
+        updateData.cinemaVideoId = null;
+        updateData.cinemaState = 'STOPPED';
+        updateData.cinemaCurrentTime = 0.0;
+        updateData.cinemaUpdatedAt = new Date();
+      }
+
+      const updatedRoom = await tx.room.update({
+        where: { id: roomId },
+        data: updateData,
+        select: {
+          id: true,
+          currentMode: true,
+          cinemaVideoId: true,
+          cinemaState: true,
+          cinemaCurrentTime: true,
+          cinemaUpdatedAt: true,
+        },
+      });
+
+      return { updatedRoom, previousMode, createdMessages };
     });
+
+    if (!txResult) return;
+
+    const { updatedRoom, previousMode, createdMessages } = txResult;
+
+    // 1. Si la actividad previa era screening y se cambió de modo, emitir cinema:sync CLEAR
+    if (previousMode === 'screening' && mode !== 'screening') {
+      io.to(`sala:${roomId}`).emit('cinema:sync', {
+        roomId,
+        action: 'CLEAR',
+        videoId: null,
+        state: 'STOPPED',
+        currentTime: 0,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    // 2. Emitir mensajes de sistema creados
+    for (const msg of createdMessages) {
+      const payloadMsg = roomMessagePayload(msg);
+      io.to(`sala:${roomId}`).emit('room:message', payloadMsg);
+    }
+
+    // 3. Emitir room:mode_changed
     const actor = await fetchPublicUser(userId, socket.data.username || 'Moderador');
     io.to(`sala:${roomId}`).emit('room:mode_changed', {
       roomId,
@@ -797,26 +858,7 @@ async function handleRoomModeChange(socket, payload) {
       timestamp: new Date().toISOString(),
     });
 
-    // ── Mensaje de sistema persistente (activación / fin de actividad) ──
-    if (mode === 'standard') {
-      if (ACTIVE_MODES.has(previousMode)) {
-        await createRoomSystemMessage(
-          prisma,
-          roomId,
-          userId,
-          MODE_SYSTEM_TEXT_END[previousMode] ?? '[Sistema]: Actividad finalizada.',
-        );
-      }
-    } else if (ACTIVE_MODES.has(mode)) {
-      await createRoomSystemMessage(
-        prisma,
-        roomId,
-        userId,
-        MODE_SYSTEM_TEXT[mode] ?? '[Sistema]: Actividad iniciada.',
-      );
-    }
-
-    console.log(`[MODE_DEBUG_SERVER] Broadcast room:mode_changed emitido a sala:${roomId} -> ${mode}`);
+    console.log(`[MODE_DEBUG_SERVER] Broadcast atómico room:mode_changed emitido a sala:${roomId} -> ${mode}`);
   } catch (err) {
     console.error('[room:mode] change failed:', err.message);
   }

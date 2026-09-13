@@ -306,6 +306,13 @@ function roomMessagePayload(m) {
   const diceResult = metadata.diceResult || null;
   const diceEmoji = metadata.diceEmoji || null;
   const diceName = metadata.diceName || null;
+  const replyToId = metadata.replyToId || (metadata.replyTo && metadata.replyTo.id) || null;
+  const replyToName = metadata.replyToName || (metadata.replyTo && (metadata.replyTo.authorName || metadata.replyTo.senderName || metadata.replyTo.username)) || null;
+  const replyToBody = metadata.replyToBody || (metadata.replyTo && (metadata.replyTo.content || metadata.replyTo.body)) || null;
+  const replyTo = metadata.replyTo || (replyToId ? { id: replyToId, authorName: replyToName, content: replyToBody } : null);
+  const isEdited = Boolean(metadata.isEdited);
+  const editedAt = metadata.editedAt || null;
+  const editCount = typeof metadata.editCount === 'number' ? metadata.editCount : (isEdited ? 1 : 0);
 
   return {
     id: m.id,
@@ -327,6 +334,13 @@ function roomMessagePayload(m) {
     diceResult,
     diceEmoji,
     diceName,
+    replyToId,
+    replyToName,
+    replyToBody,
+    replyTo,
+    isEdited,
+    editedAt,
+    editCount,
     metadata,
     // ── Compatibilidad con el wire format existente ──
     body: m.body,
@@ -430,6 +444,10 @@ async function handleSendRoomMessage(socket, payload) {
   if (payload.diceResult && !metadata.diceResult) metadata.diceResult = payload.diceResult;
   if (payload.diceEmoji && !metadata.diceEmoji) metadata.diceEmoji = payload.diceEmoji;
   if (payload.diceName && !metadata.diceName) metadata.diceName = payload.diceName;
+  if (payload.replyToId && !metadata.replyToId) metadata.replyToId = payload.replyToId;
+  if (payload.replyToName && !metadata.replyToName) metadata.replyToName = payload.replyToName;
+  if (payload.replyToBody && !metadata.replyToBody) metadata.replyToBody = payload.replyToBody;
+  if (payload.replyTo && !metadata.replyTo) metadata.replyTo = payload.replyTo;
 
   if (type === 'POLL') {
     const pollQuestion = typeof metadata.question === 'string' ? metadata.question.trim() : rawContent;
@@ -484,6 +502,31 @@ async function handleSendRoomMessage(socket, payload) {
     if (!room || room.status !== 'ACTIVE') return;
     if (!participant && room.hostId !== userId) return;
 
+    if (metadata.replyToId && (!metadata.replyToName || !metadata.replyToBody)) {
+      try {
+        const quoted = await prisma.roomMessage.findUnique({
+          where: { id: metadata.replyToId },
+          select: {
+            id: true,
+            body: true,
+            characterName: true,
+            sender: { select: { displayName: true, username: true } },
+          },
+        });
+        if (quoted) {
+          metadata.replyToName = metadata.replyToName || quoted.characterName || quoted.sender?.displayName || quoted.sender?.username || 'Usuario';
+          metadata.replyToBody = metadata.replyToBody || quoted.body;
+          metadata.replyTo = {
+            id: quoted.id,
+            authorName: metadata.replyToName,
+            content: metadata.replyToBody,
+          };
+        }
+      } catch (quoteErr) {
+        console.warn('[room] Quoted lookup failed:', quoteErr.message);
+      }
+    }
+
     const message = await prisma.roomMessage.create({
       data: {
         roomId,
@@ -502,6 +545,127 @@ async function handleSendRoomMessage(socket, payload) {
     console.log(`[SOCKET_SERVER] Mensaje emitido a sala:${roomId}: ${body}`);
   } catch (err) {
     console.error('[room] send_room_message failed:', err.message);
+  }
+}
+
+async function handleEditRoomMessage(socket, payload) {
+  const userId = socket.userId || socket.data?.userId;
+  if (!userId) return;
+  if (!payload || typeof payload !== 'object') return;
+
+  const roomId = typeof payload.roomId === 'string' ? payload.roomId : '';
+  const messageId = typeof payload.messageId === 'string' ? payload.messageId : (typeof payload.id === 'string' ? payload.id : '');
+  const rawBody = typeof payload.content === 'string' ? payload.content.trim() : (typeof payload.body === 'string' ? payload.body.trim() : '');
+
+  if (!roomId || !messageId || !rawBody) return;
+  if (rawBody.length > 4000) {
+    socket.emit('error', { message: 'El mensaje no puede superar los 4000 caracteres' });
+    return;
+  }
+
+  let prisma;
+  try {
+    prisma = await matchPrisma();
+  } catch (err) {
+    console.error('[room] prisma init failed:', err.message);
+    return;
+  }
+
+  try {
+    const existing = await prisma.roomMessage.findUnique({
+      where: { id: messageId },
+      include: { sender: true },
+    });
+
+    if (!existing || existing.roomId !== roomId) {
+      socket.emit('error', { message: 'Mensaje no encontrado' });
+      return;
+    }
+
+    if (existing.senderId !== userId) {
+      socket.emit('error', { message: 'No tienes permiso para editar este mensaje' });
+      return;
+    }
+
+    const currentExt = objectOrEmpty(existing.extensions);
+    if (currentExt.isEdited || (currentExt.editCount && currentExt.editCount > 0)) {
+      socket.emit('error', { message: 'El mensaje ya ha sido editado previamente' });
+      return;
+    }
+
+    const updatedExt = {
+      ...currentExt,
+      isEdited: true,
+      editedAt: new Date().toISOString(),
+      editCount: 1,
+    };
+
+    const updated = await prisma.roomMessage.update({
+      where: { id: messageId },
+      data: {
+        body: rawBody.slice(0, 4000),
+        extensions: updatedExt,
+      },
+      include: { sender: true },
+    });
+
+    const outPayload = roomMessagePayload(updated);
+    io.to(`sala:${roomId}`).emit('room:message_updated', outPayload);
+  } catch (err) {
+    console.error('[room] handleEditRoomMessage failed:', err.message);
+  }
+}
+
+async function handleDeleteRoomMessage(socket, payload) {
+  const userId = socket.userId || socket.data?.userId;
+  if (!userId) return;
+  if (!payload || typeof payload !== 'object') return;
+
+  const roomId = typeof payload.roomId === 'string' ? payload.roomId : '';
+  const messageId = typeof payload.messageId === 'string' ? payload.messageId : (typeof payload.id === 'string' ? payload.id : '');
+  if (!roomId || !messageId) return;
+
+  let prisma;
+  try {
+    prisma = await matchPrisma();
+  } catch (err) {
+    console.error('[room] prisma init failed:', err.message);
+    return;
+  }
+
+  try {
+    const existing = await prisma.roomMessage.findUnique({
+      where: { id: messageId },
+      select: { id: true, roomId: true, senderId: true },
+    });
+
+    if (!existing || existing.roomId !== roomId) {
+      socket.emit('error', { message: 'Mensaje no encontrado' });
+      return;
+    }
+
+    const isAuthor = existing.senderId === userId;
+    let allowed = isAuthor;
+    if (!allowed) {
+      allowed = await canManageSala(roomId, userId);
+    }
+
+    if (!allowed) {
+      socket.emit('error', { message: 'No tienes permisos para eliminar este mensaje' });
+      return;
+    }
+
+    await prisma.roomMessage.delete({
+      where: { id: messageId },
+    });
+
+    io.to(`sala:${roomId}`).emit('room:message_deleted', {
+      roomId,
+      messageId,
+      deletedBy: userId,
+    });
+  } catch (err) {
+    console.error('[room] handleDeleteRoomMessage failed:', err.message);
   }
 }
 
@@ -1086,6 +1250,26 @@ io.on('connection', (socket) => {
   });
   socket.on('send_message', (payload) => {
     handleSendRoomMessage(socket, payload);
+  });
+
+  // Edición y eliminación de mensajes de sala vía Socket.IO
+  socket.on('room:message_edit', (payload) => {
+    handleEditRoomMessage(socket, payload);
+  });
+  socket.on('room:message:edit', (payload) => {
+    handleEditRoomMessage(socket, payload);
+  });
+  socket.on('room:edit_message', (payload) => {
+    handleEditRoomMessage(socket, payload);
+  });
+  socket.on('room:message_delete', (payload) => {
+    handleDeleteRoomMessage(socket, payload);
+  });
+  socket.on('room:message:delete', (payload) => {
+    handleDeleteRoomMessage(socket, payload);
+  });
+  socket.on('room:delete_message', (payload) => {
+    handleDeleteRoomMessage(socket, payload);
   });
 
   // Sala de Cine sincronizada: acciones del host → persist + broadcast.

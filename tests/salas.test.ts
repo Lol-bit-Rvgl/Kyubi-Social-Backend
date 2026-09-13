@@ -16,7 +16,7 @@ const mockPrisma = vi.hoisted(() => {
       circleMember: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
       room: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), count: vi.fn() },
       roomParticipant: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), upsert: vi.fn(), delete: vi.fn(), deleteMany: vi.fn(), count: vi.fn() },
-      roomMessage: { create: vi.fn().mockResolvedValue({ id: 'msg-1', roomId: 'room-1', senderId: 'user-1', sender: { id: 'user-1', username: 'user_one', displayName: 'User One', avatarUrl: null }, type: 'SYSTEM', body: 'User One se ha unido.', extensions: {}, createdAt: new Date() }), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+      roomMessage: { create: vi.fn().mockResolvedValue({ id: 'msg-1', roomId: 'room-1', senderId: 'user-1', sender: { id: 'user-1', username: 'user_one', displayName: 'User One', avatarUrl: null }, type: 'SYSTEM', body: 'User One se ha unido.', extensions: {}, createdAt: new Date() }), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn(), delete: vi.fn() },
       ban: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
       mute: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
       moderationLog: { findMany: vi.fn(), create: vi.fn(), count: vi.fn() },
@@ -41,6 +41,8 @@ import { POST as leaveSala } from '@/app/salas/[id]/leave/route';
 import { POST as updateStageRole } from '@/app/salas/[id]/stage/role/route';
 import { POST as votePoll } from '@/app/salas/[id]/messages/[messageId]/vote/route';
 import { PATCH as patchMode } from '@/app/salas/[id]/mode/route';
+import { POST as postMessage, GET as getMessages } from '@/app/salas/[id]/messages/route';
+import { PATCH as patchMessage, DELETE as deleteMessage } from '@/app/salas/[id]/messages/[messageId]/route';
 
 const m = prisma as unknown as PrismaMock;
 
@@ -636,5 +638,232 @@ describe('salas', () => {
       { params: Promise.resolve({ id: 'room-1' }) }
     );
     expect(resValid.status).toBe(200);
+  });
+
+  describe('interacción y mensajería en salas (reply, edición única y eliminación)', () => {
+    it('enviar mensaje con replyToId resuelve y serializa la cita', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', hostId: 'user-1' });
+      m.roomParticipant.findUnique.mockResolvedValue({ id: 'part-1', role: 'MEMBER' });
+      m.roomMessage.findUnique.mockResolvedValue({
+        id: 'msg-quoted',
+        body: 'Texto original de prueba',
+        characterName: 'Zorro Sabio',
+        sender: { displayName: 'Original Author', username: 'orig_author' },
+      });
+      m.roomMessage.create.mockResolvedValue({
+        id: 'msg-2',
+        roomId: 'room-1',
+        senderId: 'user-1',
+        type: 'TEXT',
+        body: 'Respuesta al mensaje citado',
+        characterId: null,
+        characterName: null,
+        characterAvatarUrl: null,
+        extensions: {
+          replyToId: 'msg-quoted',
+          replyToName: 'Zorro Sabio',
+          replyToBody: 'Texto original de prueba',
+          replyTo: {
+            id: 'msg-quoted',
+            authorName: 'Zorro Sabio',
+            content: 'Texto original de prueba',
+          },
+        },
+        createdAt: new Date(),
+        sender: author,
+      });
+
+      const res = await postMessage(
+        jsonRequest('http://localhost/salas/room-1/messages', {
+          method: 'POST',
+          token,
+          body: {
+            content: 'Respuesta al mensaje citado',
+            replyToId: 'msg-quoted',
+          },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+
+      expect(res.status).toBe(201);
+      const data = await res.json();
+      expect(data.replyToId).toBe('msg-quoted');
+      expect(data.replyToName).toBe('Zorro Sabio');
+      expect(data.replyToBody).toBe('Texto original de prueba');
+      expect(data.replyTo.authorName).toBe('Zorro Sabio');
+    });
+
+    it('editar un mensaje por primera vez tiene éxito y marca isEdited=true, editCount=1', async () => {
+      const token = await tokenFor();
+      m.roomMessage.findUnique.mockResolvedValue({
+        id: 'msg-1',
+        roomId: 'room-1',
+        senderId: 'user-1',
+        body: 'Mensaje original',
+        extensions: {},
+        sender: author,
+      });
+      m.roomMessage.update.mockImplementation(({ data }) =>
+        Promise.resolve({
+          id: 'msg-1',
+          roomId: 'room-1',
+          senderId: 'user-1',
+          type: 'TEXT',
+          body: data.body,
+          characterId: null,
+          characterName: null,
+          characterAvatarUrl: null,
+          extensions: data.extensions,
+          createdAt: new Date(),
+          sender: author,
+        })
+      );
+
+      const res = await patchMessage(
+        jsonRequest('http://localhost/salas/room-1/messages/msg-1', {
+          method: 'PATCH',
+          token,
+          body: { content: 'Mensaje editado correctamente' },
+        }),
+        { params: Promise.resolve({ id: 'room-1', messageId: 'msg-1' }) }
+      );
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.body).toBe('Mensaje editado correctamente');
+      expect(data.isEdited).toBe(true);
+      expect(data.editCount).toBe(1);
+      expect(data.editedAt).toBeTruthy();
+    });
+
+    it('un segundo intento de edición es rechazado con 400', async () => {
+      const token = await tokenFor();
+      m.roomMessage.findUnique.mockResolvedValue({
+        id: 'msg-1',
+        roomId: 'room-1',
+        senderId: 'user-1',
+        body: 'Mensaje ya editado',
+        extensions: { isEdited: true, editCount: 1, editedAt: new Date().toISOString() },
+        sender: author,
+      });
+
+      const res = await patchMessage(
+        jsonRequest('http://localhost/salas/room-1/messages/msg-1', {
+          method: 'PATCH',
+          token,
+          body: { content: 'Segundo intento de edición' },
+        }),
+        { params: Promise.resolve({ id: 'room-1', messageId: 'msg-1' }) }
+      );
+
+      expect(res.status).toBe(400);
+      const err = await res.json();
+      expect(err.message || err.error).toBe('El mensaje ya ha sido editado previamente');
+    });
+
+    it('editar un mensaje de otro usuario es rechazado con 403', async () => {
+      const token = await tokenFor();
+      m.roomMessage.findUnique.mockResolvedValue({
+        id: 'msg-1',
+        roomId: 'room-1',
+        senderId: 'user-other',
+        body: 'Mensaje de otro usuario',
+        extensions: {},
+        sender: { id: 'user-other', username: 'other', displayName: 'Other' },
+      });
+
+      const res = await patchMessage(
+        jsonRequest('http://localhost/salas/room-1/messages/msg-1', {
+          method: 'PATCH',
+          token,
+          body: { content: 'Intento no autorizado' },
+        }),
+        { params: Promise.resolve({ id: 'room-1', messageId: 'msg-1' }) }
+      );
+
+      expect(res.status).toBe(403);
+    });
+
+    it('eliminar un mensaje propio tiene éxito', async () => {
+      const token = await tokenFor();
+      m.roomMessage.findUnique.mockResolvedValue({
+        id: 'msg-1',
+        roomId: 'room-1',
+        senderId: 'user-1',
+      });
+      m.roomMessage.delete.mockResolvedValue({ id: 'msg-1' });
+
+      const res = await deleteMessage(
+        jsonRequest('http://localhost/salas/room-1/messages/msg-1', {
+          method: 'DELETE',
+          token,
+        }),
+        { params: Promise.resolve({ id: 'room-1', messageId: 'msg-1' }) }
+      );
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+      expect(data.deletedMessageId).toBe('msg-1');
+      expect(m.roomMessage.delete).toHaveBeenCalledWith({ where: { id: 'msg-1' } });
+    });
+
+    it('el host de la sala puede eliminar mensajes de otros participantes', async () => {
+      const token = await tokenFor();
+      m.roomMessage.findUnique.mockResolvedValue({
+        id: 'msg-other',
+        roomId: 'room-1',
+        senderId: 'user-other',
+      });
+      m.room.findUnique.mockResolvedValue({
+        id: 'room-1',
+        status: 'ACTIVE',
+        hostId: 'user-1', // El usuario actual es el host
+      });
+      m.roomParticipant.findUnique.mockResolvedValue(null);
+      m.roomMessage.delete.mockResolvedValue({ id: 'msg-other' });
+
+      const res = await deleteMessage(
+        jsonRequest('http://localhost/salas/room-1/messages/msg-other', {
+          method: 'DELETE',
+          token,
+        }),
+        { params: Promise.resolve({ id: 'room-1', messageId: 'msg-other' }) }
+      );
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+      expect(data.deletedMessageId).toBe('msg-other');
+    });
+
+    it('un participante sin permisos no puede eliminar mensajes ajenos', async () => {
+      const token = await tokenFor();
+      m.roomMessage.findUnique.mockResolvedValue({
+        id: 'msg-other',
+        roomId: 'room-1',
+        senderId: 'user-other',
+      });
+      m.room.findUnique.mockResolvedValue({
+        id: 'room-1',
+        status: 'ACTIVE',
+        hostId: 'user-host',
+      });
+      m.roomParticipant.findUnique.mockResolvedValue({
+        id: 'rp-1',
+        role: 'MEMBER',
+      });
+
+      const res = await deleteMessage(
+        jsonRequest('http://localhost/salas/room-1/messages/msg-other', {
+          method: 'DELETE',
+          token,
+        }),
+        { params: Promise.resolve({ id: 'room-1', messageId: 'msg-other' }) }
+      );
+
+      expect(res.status).toBe(403);
+    });
   });
 });

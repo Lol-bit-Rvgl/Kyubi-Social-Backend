@@ -229,6 +229,15 @@ function serializeRoomMessage(
     diceName,
     metadata: pollMetadata as Prisma.JsonObject,
 
+    // ── Reply & Edit fields ──
+    replyToId: (ext.replyToId || ext.replyTo?.id || null) as string | null,
+    replyToName: (ext.replyToName || ext.replyTo?.authorName || ext.replyTo?.username || null) as string | null,
+    replyToBody: (ext.replyToBody || ext.replyTo?.content || null) as string | null,
+    replyTo: (ext.replyTo || (ext.replyToId ? { id: ext.replyToId, authorName: ext.replyToName, content: ext.replyToBody } : null)) as any,
+    isEdited: Boolean(ext.isEdited),
+    editedAt: (ext.editedAt || null) as string | null,
+    editCount: Number(ext.editCount || 0),
+
     // ── Compatibilidad con el wire format existente ──
     body: message.body,
     characterId: message.characterId ?? null,
@@ -269,6 +278,16 @@ const sendSchema = z.object({
   characterId: z.string().max(64).nullable().optional(),
   characterName: z.string().max(80).nullable().optional(),
   characterAvatarUrl: optionalSafeHttpUrl,
+  replyToId: z.string().nullable().optional(),
+  replyTo: z
+    .object({
+      id: z.string(),
+      username: z.string().optional(),
+      authorName: z.string().optional(),
+      content: z.string().optional(),
+    })
+    .nullable()
+    .optional(),
   extensions: z.record(z.string(), z.unknown()).nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 });
@@ -328,11 +347,48 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
     rawBody ||
     (body.data.type === 'IMAGE' ? '[Imagen]' : body.data.type === 'VOICE' ? '[Audio]' : '[Multimedia]');
 
-  const mergedExtensions = {
+  // Resolver mensaje citado si se envía replyToId o replyTo
+  const targetReplyId = body.data.replyToId || body.data.replyTo?.id;
+  let replyData: { id: string; authorName: string; content: string } | null = null;
+  if (targetReplyId) {
+    const quoted = await prisma.roomMessage.findUnique({
+      where: { id: targetReplyId },
+      include: { sender: true },
+    });
+    if (quoted) {
+      replyData = {
+        id: quoted.id,
+        authorName:
+          quoted.characterName ||
+          quoted.sender.displayName ||
+          quoted.sender.username,
+        content: quoted.body,
+      };
+    } else if (body.data.replyTo) {
+      replyData = {
+        id: body.data.replyTo.id,
+        authorName:
+          body.data.replyTo.authorName ||
+          body.data.replyTo.username ||
+          'Usuario',
+        content: body.data.replyTo.content || '',
+      };
+    }
+  }
+
+  const mergedExtensions: Record<string, any> = {
     ...(body.data.extensions || {}),
     ...(body.data.metadata || {}),
     ...(body.data.mediaUrl ? { mediaUrl: body.data.mediaUrl } : {}),
     ...(body.data.attachments ? { attachments: body.data.attachments } : {}),
+    ...(replyData
+      ? {
+          replyToId: replyData.id,
+          replyTo: replyData,
+          replyToName: replyData.authorName,
+          replyToBody: replyData.content,
+        }
+      : {}),
   };
 
   const isCreationMessage =

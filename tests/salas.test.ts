@@ -133,6 +133,39 @@ describe('salas', () => {
     );
   });
 
+  it('POST 201 crea sala con nombre y descripción con solo emojis o null', async () => {
+    const token = await tokenFor();
+    m.room.create.mockResolvedValue(baseRoom({ name: '🦊🔥🎮', description: '✨🎉🚀' }));
+
+    const res = await createSala(
+      jsonRequest('http://localhost/salas', {
+        method: 'POST',
+        body: { name: '🦊🔥🎮', description: '✨🎉🚀' },
+        token,
+      })
+    );
+    expect(res.status).toBe(201);
+    expect(m.room.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          name: '🦊🔥🎮',
+          description: '✨🎉🚀',
+        }),
+      })
+    );
+
+    // Prueba con un solo emoji y descripción null
+    m.room.create.mockResolvedValue(baseRoom({ name: '🦊', description: null }));
+    const resSingleEmoji = await createSala(
+      jsonRequest('http://localhost/salas', {
+        method: 'POST',
+        body: { name: '🦊', description: null },
+        token,
+      })
+    );
+    expect(resSingleEmoji.status).toBe(201);
+  });
+
   it('POST 400 con nombre vacío', async () => {
     const token = await tokenFor();
     const res = await createSala(jsonRequest('http://localhost/salas', { method: 'POST', body: { name: '   ' }, token }));

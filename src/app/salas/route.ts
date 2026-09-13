@@ -67,8 +67,19 @@ export const GET = withErrorHandling(async (request: Request) => {
 });
 
 const createSchema = z.object({
-  name: z.string().trim().min(3).max(30),
-  description: z.string().trim().max(300).optional(),
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .refine(
+      (val) => {
+        const count = [...val].length;
+        return count >= 1 && count <= 30;
+      },
+      { message: 'El nombre debe tener entre 1 y 30 caracteres' },
+    ),
+  description: z.string().trim().max(300).nullable().optional(),
   imageUrl: z.string().nullable().optional(),
   capacity: z.number().int().min(2).max(500).nullable().optional(),
   access: z.enum(['PUBLIC', 'PRIVATE']).optional(),

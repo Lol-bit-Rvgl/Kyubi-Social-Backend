@@ -158,7 +158,12 @@ export const POST = withErrorHandling(
     }
 
     // ── ADOPCIÓN O LIBERACIÓN DE ROL POR PARTICIPANTE ──
-    const isTake = action === 'take' || (role != null && (role.isTaken || role.takenByUserId === session.userId));
+    const isLeave = action === 'leave';
+    const isTake =
+      !isLeave &&
+      (action === 'take' ||
+        (role != null &&
+          (role.isTaken || role.takenByUserId === session.userId)));
 
     const participant = await prisma.roomParticipant.findUnique({
       where: { roomId_userId: { roomId, userId: session.userId } },
@@ -175,8 +180,11 @@ export const POST = withErrorHandling(
       const updatedRole = {
         ...role,
         isTaken: true,
+        isOccupied: true,
         takenByUserId: session.userId,
         takenByUsername: userName,
+        occupiedBy: session.userId,
+        occupiedByName: userName,
       };
 
       if (participant) {
@@ -191,6 +199,25 @@ export const POST = withErrorHandling(
           },
         });
       }
+
+      // Si el usuario tenía otro rol ocupado en la sala, liberarlo primero
+      currentStageRoles = currentStageRoles.map((r) => {
+        if (
+          r.id !== role.id &&
+          (r.takenByUserId === session.userId || r.occupiedBy === session.userId)
+        ) {
+          return {
+            ...r,
+            isTaken: false,
+            isOccupied: false,
+            takenByUserId: null,
+            takenByUsername: null,
+            occupiedBy: null,
+            occupiedByName: null,
+          };
+        }
+        return r;
+      });
 
       const roleIndex = currentStageRoles.findIndex((r) => r.id === role.id);
       if (roleIndex >= 0) {
@@ -219,46 +246,36 @@ export const POST = withErrorHandling(
       });
     } else {
       // Liberar rol (leave):
-      const targetRoleId = role?.id || roleId;
+      let targetRoleId = role?.id || roleId;
 
       if (participant) {
-        const currentMeta = (participant.metadata as Record<string, any>) || {};
+        const metadata = (participant.metadata as Record<string, any>) || {};
+        delete metadata.activeCharacter;
+        delete metadata.character;
         await prisma.roomParticipant.update({
           where: { id: participant.id },
-          data: {
-            metadata: {
-              ...currentMeta,
-              activeCharacter: null,
-            },
-          },
+          data: { metadata },
         });
       }
 
-      if (targetRoleId) {
-        currentStageRoles = currentStageRoles.map((r) => {
-          if (r.id === targetRoleId) {
-            return {
-              ...r,
-              isTaken: false,
-              takenByUserId: null,
-              takenByUsername: null,
-            };
-          }
-          return r;
-        });
-      } else {
-        currentStageRoles = currentStageRoles.map((r) => {
-          if (r.takenByUserId === session.userId) {
-            return {
-              ...r,
-              isTaken: false,
-              takenByUserId: null,
-              takenByUsername: null,
-            };
-          }
-          return r;
-        });
-      }
+      currentStageRoles = currentStageRoles.map((r) => {
+        const matchesTarget = Boolean(targetRoleId && r.id === targetRoleId);
+        const matchesUser =
+          r.takenByUserId === session.userId || r.occupiedBy === session.userId;
+        if (matchesTarget || matchesUser) {
+          if (!targetRoleId) targetRoleId = r.id;
+          return {
+            ...r,
+            isTaken: false,
+            isOccupied: false,
+            takenByUserId: null,
+            takenByUsername: null,
+            occupiedBy: null,
+            occupiedByName: null,
+          };
+        }
+        return r;
+      });
 
       await prisma.room.update({
         where: { id: roomId },

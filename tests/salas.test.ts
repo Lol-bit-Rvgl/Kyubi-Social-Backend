@@ -437,11 +437,54 @@ describe('salas', () => {
     expect(body.action).toBe('leave');
     expect(m.roomParticipant.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          metadata: expect.objectContaining({ activeCharacter: null }),
-        }),
+        where: { id: 'rp-1' },
+        data: { metadata: {} },
       })
     );
+    expect(m.room.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'room-1' },
+        data: {
+          stageRoles: expect.arrayContaining([
+            expect.objectContaining({ id: 'role-1', isTaken: false }),
+          ]),
+        },
+      })
+    );
+  });
+
+  it('dejar rol enviando role con isTaken:true no lo toma como take sino como leave', async () => {
+    const token = await tokenFor('user-1');
+    m.room.findUnique.mockResolvedValue({
+      id: 'room-1',
+      status: 'ACTIVE',
+      hostId: 'user-2',
+      stageRoles: [{ id: 'role-1', name: 'Zorro', isTaken: true, takenByUserId: 'user-1' }],
+    });
+    m.roomParticipant.findUnique.mockResolvedValue({
+      id: 'rp-1',
+      metadata: { activeCharacter: { id: 'role-1' } },
+    });
+    m.roomParticipant.update.mockResolvedValue({ id: 'rp-1' });
+    m.room.update.mockResolvedValue({ id: 'room-1' });
+
+    const res = await updateStageRole(
+      jsonRequest('http://localhost/salas/room-1/stage/role', {
+        method: 'POST',
+        token,
+        body: {
+          action: 'leave',
+          role: { id: 'role-1', name: 'Zorro', isTaken: true, takenByUserId: 'user-1' },
+          roleId: 'role-1',
+        },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.action).toBe('leave');
+    expect(body.stageRoles[0].isTaken).toBe(false);
   });
 
   it('crear un rol en el stage (action: create) como host persiste en stageRoles y emite evento', async () => {

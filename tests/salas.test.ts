@@ -840,6 +840,55 @@ describe('salas', () => {
     expect(resValid.status).toBe(200);
   });
 
+  it('updateStageRole con action: delete elimina el rol y limpia activeCharacter', async () => {
+    const token = await tokenFor('host-1');
+    m.room.findUnique.mockResolvedValue({
+      id: 'room-1',
+      status: 'ACTIVE',
+      hostId: 'host-1',
+      stageRoles: [
+        { id: 'role-1', name: 'Role One' },
+        { id: 'role-2', name: 'Role Two' },
+      ],
+    });
+    m.roomParticipant.findUnique.mockResolvedValue({
+      id: 'rp-host',
+      role: 'HOST',
+    });
+    m.roomParticipant.findMany.mockResolvedValue([
+      { id: 'rp-1', metadata: { activeCharacter: { id: 'role-1', name: 'Role One' } } },
+      { id: 'rp-2', metadata: { activeCharacter: { id: 'role-2', name: 'Role Two' } } },
+    ]);
+    m.roomParticipant.update.mockResolvedValue({ id: 'rp-1' });
+    m.room.update.mockResolvedValue({ id: 'room-1' });
+
+    const res = await updateStageRole(
+      jsonRequest('http://localhost/salas/room-1/stage/role', {
+        method: 'POST',
+        token,
+        body: {
+          action: 'delete',
+          roleId: 'role-1',
+        },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.action).toBe('delete');
+    expect(data.stageRoles).toEqual([{ id: 'role-2', name: 'Role Two' }]);
+    expect(m.room.update).toHaveBeenCalledWith({
+      where: { id: 'room-1' },
+      data: { stageRoles: [{ id: 'role-2', name: 'Role Two' }] },
+    });
+    expect(m.roomParticipant.update).toHaveBeenCalledWith({
+      where: { id: 'rp-1' },
+      data: { metadata: { activeCharacter: null } },
+    });
+  });
+
   describe('interacción y mensajería en salas (reply, edición única y eliminación)', () => {
     it('enviar mensaje con replyToId resuelve y serializa la cita', async () => {
       const token = await tokenFor();
@@ -1121,6 +1170,32 @@ describe('salas', () => {
       expect(res.status).toBe(400);
       const err = await res.json();
       expect(err.message || err.error).toBe('El mensaje ya ha sido editado previamente');
+    });
+
+    it('editar un mensaje creado hace más de 15 minutos es rechazado con 400', async () => {
+      const token = await tokenFor();
+      m.roomMessage.findUnique.mockResolvedValue({
+        id: 'msg-1',
+        roomId: 'room-1',
+        senderId: 'user-1',
+        body: 'Mensaje antiguo',
+        extensions: {},
+        createdAt: new Date(Date.now() - 16 * 60 * 1000), // 16 minutos atrás
+        sender: author,
+      });
+
+      const res = await patchMessage(
+        jsonRequest('http://localhost/salas/room-1/messages/msg-1', {
+          method: 'PATCH',
+          token,
+          body: { content: 'Intento de editar mensaje expirado' },
+        }),
+        { params: Promise.resolve({ id: 'room-1', messageId: 'msg-1' }) }
+      );
+
+      expect(res.status).toBe(400);
+      const err = await res.json();
+      expect(err.message || err.error).toBe('Solo puedes editar mensajes dentro de los primeros 15 minutos.');
     });
 
     it('editar un mensaje de otro usuario es rechazado con 403', async () => {

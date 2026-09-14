@@ -113,10 +113,13 @@ export const POST = withErrorHandling(
     if (action === 'delete') {
       const canManage = await canManageRoom(roomId, session.userId);
       if (!canManage) return fail('No tienes permiso para gestionar roles en esta sala', 403);
-      const targetRoleId = roleId || role?.id;
-      if (!targetRoleId) return fail('ID de rol requerido', 400);
+      const rawRoleId = roleId || role?.id;
+      if (!rawRoleId) return fail('ID de rol requerido', 400);
+      const targetRoleId = String(rawRoleId).trim();
 
-      currentStageRoles = currentStageRoles.filter((r) => r.id !== targetRoleId);
+      currentStageRoles = currentStageRoles.filter(
+        (r: any) => String(r.id).trim() !== targetRoleId
+      );
 
       // Limpiar rol si algún participante lo tenía equipado
       const affectedParticipants = await prisma.roomParticipant.findMany({
@@ -124,7 +127,10 @@ export const POST = withErrorHandling(
       });
       for (const p of affectedParticipants) {
         const meta = (p.metadata as Record<string, any>) || {};
-        if (meta.activeCharacter?.id === targetRoleId) {
+        if (
+          meta.activeCharacter &&
+          String(meta.activeCharacter.id).trim() === targetRoleId
+        ) {
           await prisma.roomParticipant.update({
             where: { id: p.id },
             data: {

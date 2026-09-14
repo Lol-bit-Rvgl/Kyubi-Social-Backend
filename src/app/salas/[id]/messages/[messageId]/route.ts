@@ -57,6 +57,12 @@ export const PATCH = withErrorHandling(
       return fail('Solo el autor puede editar su mensaje', 403);
     }
 
+    const messageAgeMs = Date.now() - new Date(message.createdAt).getTime();
+    const MAX_EDIT_TIME_MS = 15 * 60 * 1000;
+    if (messageAgeMs > MAX_EDIT_TIME_MS) {
+      return fail('Solo puedes editar mensajes dentro de los primeros 15 minutos.', 400);
+    }
+
     const ext = (message.extensions as Record<string, any>) || {};
     if (ext.isEdited || (ext.editCount && Number(ext.editCount) > 0)) {
       return fail('El mensaje ya ha sido editado previamente', 400);

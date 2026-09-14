@@ -4,6 +4,7 @@ export type PrismaMock = {
   user: { findFirst: Mock; findUnique: Mock; findMany: Mock; create: Mock; update: Mock; count: Mock };
   refreshToken: { create: Mock; findUnique: Mock; update: Mock; updateMany: Mock; deleteMany: Mock };
   verificationToken: { create: Mock; findUnique: Mock; update: Mock };
+  passwordResetToken: { create: Mock; findFirst: Mock; update: Mock; updateMany: Mock; deleteMany?: Mock };
   post: { create: Mock; findMany: Mock; findUnique: Mock; update: Mock; delete: Mock; count: Mock };
   follow: { findMany: Mock; findUnique: Mock; upsert: Mock; deleteMany: Mock };
   reaction: { upsert: Mock; deleteMany: Mock; findMany: Mock };

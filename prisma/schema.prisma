@@ -169,7 +169,8 @@ model User {
   id                      String               @id @default(cuid())
   email                   String               @unique
   username                String               @unique
-  passwordHash            String
+  passwordHash            String?
+  googleId                String?              @unique
   displayName             String?
   avatarUrl               String?
   bannerUrl               String?
@@ -856,3 +857,19 @@ model UserTitle {
 
   @@index([userId, displayOrder])
 }
+
+/// Token y código OTP para recuperación híbrida de contraseña.
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  email     String
+  code      String   // Código numérico de 6 dígitos
+  token     String   @unique // Token seguro para deep link
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([code])
+  @@index([token])
+}
+

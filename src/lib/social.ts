@@ -95,7 +95,12 @@ export function serializeRoom(
     ? rawStageRoles.map((r: any) => {
         const assignedUserId = r.takenByUserId ?? r.occupiedBy ?? null;
         const assignedUsername = r.takenByUsername ?? r.occupiedByName ?? null;
-        const isOccupied = Boolean(assignedUserId && (r.isTaken || r.isOccupied));
+        const isOccupied = Boolean(
+          assignedUserId &&
+          r.isTaken !== false &&
+          r.isOccupied !== false &&
+          (r.isTaken || r.isOccupied || assignedUserId)
+        );
         return {
           ...r,
           isTaken: isOccupied,

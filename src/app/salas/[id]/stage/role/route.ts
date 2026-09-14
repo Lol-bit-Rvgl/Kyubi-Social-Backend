@@ -175,10 +175,11 @@ export const POST = withErrorHandling(
     });
     const userName = user?.displayName || user?.username || 'Usuario';
 
-    if (isTake && role) {
+    const targetRole = role || currentStageRoles.find((r) => r.id === roleId);
+    if (isTake && targetRole) {
       // Tomar rol:
       const updatedRole = {
-        ...role,
+        ...targetRole,
         isTaken: true,
         isOccupied: true,
         takenByUserId: session.userId,
@@ -198,12 +199,21 @@ export const POST = withErrorHandling(
             },
           },
         });
+      } else {
+        await prisma.roomParticipant.updateMany({
+          where: { roomId, userId: session.userId },
+          data: {
+            metadata: {
+              activeCharacter: updatedRole,
+            },
+          },
+        });
       }
 
       // Si el usuario tenía otro rol ocupado en la sala, liberarlo primero
       currentStageRoles = currentStageRoles.map((r) => {
         if (
-          r.id !== role.id &&
+          r.id !== targetRole.id &&
           (r.takenByUserId === session.userId || r.occupiedBy === session.userId)
         ) {
           return {
@@ -219,7 +229,7 @@ export const POST = withErrorHandling(
         return r;
       });
 
-      const roleIndex = currentStageRoles.findIndex((r) => r.id === role.id);
+      const roleIndex = currentStageRoles.findIndex((r) => r.id === targetRole.id);
       if (roleIndex >= 0) {
         currentStageRoles[roleIndex] = updatedRole;
       } else {

@@ -5,6 +5,10 @@ import { Server as SocketIOServer } from 'socket.io';
 import { jwtVerify } from 'jose';
 import { RoomServiceClient } from 'livekit-server-sdk';
 
+// ── Prisma singleton (lazy) ─────────────────────────────────────────────────────
+// Se usa `matchPrisma()` en lugar de importar directamente para evitar problemas
+// de ESM puro sin compilación TS. Ver función matchPrisma() más abajo.
+
 try {
   if (typeof process.loadEnvFile === 'function') {
     process.loadEnvFile();
@@ -1355,6 +1359,15 @@ io.on('connection', (socket) => {
 
     if (!conversationId || typeof conversationId !== 'string' || !userId) {
       socket.emit('conversation:error', { error: 'No autorizado para unirse a esta conversación' });
+      return;
+    }
+
+    let prisma;
+    try {
+      prisma = await matchPrisma();
+    } catch (err) {
+      console.error('[conversation:join] prisma init failed:', err.message);
+      socket.emit('conversation:error', { error: 'Error al unirse a la conversación' });
       return;
     }
 

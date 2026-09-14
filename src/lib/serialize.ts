@@ -241,12 +241,29 @@ export type PublicUser = {
   emailVerifiedAt?: Date | null;
   onboardingCompleted?: boolean | null;
   createdAt?: Date | string;
+  themeSettings?: unknown;
   _count?: { followers?: number; following?: number; posts?: number } | null;
 };
 
 export function serializeUser(user: PublicUser, opts: { isFollowing?: boolean; isMe?: boolean; pendingFollow?: boolean } = {}) {
   const followers = user._count?.followers ?? 0;
   const following = user._count?.following ?? 0;
+  let themeSettings = (user as any).themeSettings;
+  if (typeof themeSettings === 'string') {
+    try {
+      themeSettings = JSON.parse(themeSettings);
+    } catch {
+      themeSettings = null;
+    }
+  }
+  if (!themeSettings || typeof themeSettings !== 'object') {
+    themeSettings = {
+      primaryColor: '#BA68C8',
+      accentColor: '#00E676',
+      glassStyle: 'frosted',
+    };
+  }
+
   return {
     id: user.id,
     email: opts.isMe ? user.email ?? null : undefined,
@@ -256,6 +273,7 @@ export function serializeUser(user: PublicUser, opts: { isFollowing?: boolean; i
     bannerUrl: user.bannerUrl,
     bio: user.bio,
     usernameColor: user.usernameColor,
+    themeSettings,
     avatarFrame: user.avatarFrame,
     level: user.level ?? 1,
     isOnline: user.isOnline ?? false,

@@ -22,12 +22,29 @@ export type MePayload = {
   socialLinks: unknown;
   voiceBioUrl: string | null;
   hasPaymentPassword: boolean;
+  themeSettings?: unknown;
   availability: unknown;
   createdAt: Date;
   _count: { followers: number; following: number };
 };
 
 export function serializeMe(user: MePayload) {
+  let themeSettings = (user as any).themeSettings;
+  if (typeof themeSettings === 'string') {
+    try {
+      themeSettings = JSON.parse(themeSettings);
+    } catch {
+      themeSettings = null;
+    }
+  }
+  if (!themeSettings || typeof themeSettings !== 'object') {
+    themeSettings = {
+      primaryColor: '#BA68C8',
+      accentColor: '#00E676',
+      glassStyle: 'frosted',
+    };
+  }
+
   return {
     id: user.id,
     email: user.email,
@@ -40,6 +57,7 @@ export function serializeMe(user: MePayload) {
     onboardingCompleted: user.onboardingCompleted,
     role: user.role,
     usernameColor: user.usernameColor,
+    themeSettings,
     avatarFrame: user.avatarFrame,
     level: user.level,
     isOnline: user.isOnline,
@@ -70,6 +88,7 @@ export const meSelect = {
   onboardingCompleted: true,
   role: true,
   usernameColor: true,
+  themeSettings: true,
   avatarFrame: true,
   level: true,
   isOnline: true,

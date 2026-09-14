@@ -10,12 +10,19 @@ import { optionalSafeHttpUrl } from '@/lib/validation';
 // POST /users/onboarding (server-driven). El cliente no puede forzarlo.
 // Los campos URL usan `safeHttpUrl` para bloquear esquemas como
 // `javascript:` o `data:` (XSS).
+const themeSettingsSchema = z.object({
+  primaryColor: z.string(),
+  accentColor: z.string().optional(),
+  glassStyle: z.enum(['frosted', 'transparent']).optional(),
+});
+
 const editable = z.object({
   displayName: z.string().min(1).max(80).optional(),
   bio: z.string().max(500).nullable().optional(),
   avatarUrl: optionalSafeHttpUrl,
   bannerUrl: optionalSafeHttpUrl,
   usernameColor: z.string().nullable().optional(),
+  themeSettings: themeSettingsSchema.optional(),
   avatarFrame: z.string().nullable().optional(),
   gender: z.string().nullable().optional(),
   showGender: z.boolean().optional(),

@@ -179,6 +179,7 @@ model User {
   role                    UserRole             @default(USER)
   onboardingCompleted     Boolean              @default(false)
   usernameColor           String?
+  themeSettings           Json                 @default("{\"primaryColor\":\"#BA68C8\",\"accentColor\":\"#00E676\",\"glassStyle\":\"frosted\"}")
   avatarFrame             String?
   level                   Int                  @default(1)
   isOnline                Boolean              @default(false)

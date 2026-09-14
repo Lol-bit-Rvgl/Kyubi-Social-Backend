@@ -10,6 +10,13 @@ const profile = z.object({
   bio: z.string().max(300).nullable().optional(),
   avatarUrl: z.string().nullable().optional(),
   usernameColor: z.string().nullable().optional(),
+  themeSettings: z
+    .object({
+      primaryColor: z.string(),
+      accentColor: z.string().optional(),
+      glassStyle: z.enum(['frosted', 'transparent']).optional(),
+    })
+    .optional(),
   avatarFrame: z.string().nullable().optional(),
   gender: z.string().nullable().optional(),
   showGender: z.boolean().optional(),

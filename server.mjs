@@ -149,35 +149,52 @@ const io = new SocketIOServer(server, {
 // se emparejan al instante con `match:found`; si nadie llega dentro de
 // MATCH_TIMEOUT_MS se envía `match:none` al aspirante solitario.
 // ─────────────────────────────────────────────────────────────────────────────
-const MATCH_TIMEOUT_MS = Number(process.env.MATCH_TIMEOUT_MS || 30000);
-const matchQueue = new Map(); // category -> Map<userId, { socket, timer }>
+const MATCH_TIMEOUT_MS = Number(process.env.MATCH_TIMEOUT_MS || 35000);
+// userId -> { socket, socketId, userId, category, timer, joinedAt }
+const realMatchQueue = new Map();
 
-function removeFromMatchQueue(userId) {
-  for (const [category, waiters] of matchQueue) {
-    if (waiters.has(userId)) {
-      const entry = waiters.get(userId);
-      clearTimeout(entry.timer);
-      waiters.delete(userId);
-      if (waiters.size === 0) matchQueue.delete(category);
+function addToServerMatchQueue(userId, socket, category = 'general') {
+  if (!userId || !socket) return false;
+  removeFromServerMatchQueue(userId);
+
+  const timer = setTimeout(() => {
+    if (realMatchQueue.has(userId)) {
+      realMatchQueue.delete(userId);
+      socket.emit('match:none', { category, reason: 'timeout' });
+      io.to(`user:${userId}`).emit('match:none', { category, reason: 'timeout' });
+    }
+  }, MATCH_TIMEOUT_MS);
+
+  realMatchQueue.set(userId, {
+    socket,
+    socketId: socket.id,
+    userId,
+    category,
+    timer,
+    joinedAt: new Date(),
+  });
+  return true;
+}
+
+function removeFromServerMatchQueue(userId) {
+  if (!userId) return false;
+  const entry = realMatchQueue.get(userId);
+  if (entry) {
+    if (entry.timer) clearTimeout(entry.timer);
+    return realMatchQueue.delete(userId);
+  }
+  return false;
+}
+
+function sweepServerMatchQueue() {
+  for (const [userId, entry] of realMatchQueue) {
+    if (!entry.socket || !entry.socket.connected) {
+      if (entry.timer) clearTimeout(entry.timer);
+      realMatchQueue.delete(userId);
     }
   }
 }
-
-// Limpieza periódica de entradas colgadas: si un socket murió sin emitir
-// `disconnect`, su entrada en la cola se elimina para evitar matches fantasma.
-const MATCH_SWEEP_INTERVAL_MS = 15000;
-function sweepMatchQueue() {
-  for (const [category, waiters] of matchQueue) {
-    for (const [userId, entry] of waiters) {
-      if (!entry.socket || !entry.socket.connected) {
-        clearTimeout(entry.timer);
-        waiters.delete(userId);
-      }
-    }
-    if (waiters.size === 0) matchQueue.delete(category);
-  }
-}
-setInterval(sweepMatchQueue, MATCH_SWEEP_INTERVAL_MS).unref();
+setInterval(sweepServerMatchQueue, 15000).unref();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Recolector de basura de refresh tokens: cada hora elimina los tokens
@@ -258,6 +275,195 @@ async function fetchPublicUser(userId, fallbackUsername) {
     bio: null,
     interests: [],
   };
+}
+
+async function tryServerFindMatch() {
+  if (realMatchQueue.size < 2) return null;
+  const entries = Array.from(realMatchQueue.values());
+  let pair = null;
+
+  try {
+    const prisma = await matchPrisma();
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        const a = entries[i];
+        const b = entries[j];
+        if (a.userId === b.userId) continue;
+
+        // Comprobar si existe bloqueo mutuo
+        const block = await prisma.block.findFirst({
+          where: {
+            OR: [
+              { blockerId: a.userId, blockedId: b.userId },
+              { blockerId: b.userId, blockedId: a.userId },
+            ],
+          },
+        });
+
+        if (!block) {
+          pair = [a, b];
+          break;
+        }
+      }
+      if (pair) break;
+    }
+
+    if (!pair) return null;
+
+    const [a, b] = pair;
+    removeFromServerMatchQueue(a.userId);
+    removeFromServerMatchQueue(b.userId);
+
+    const [peerOfMine, peerOfOpponent] = await Promise.all([
+      fetchPublicUser(b.userId, b.socket?.data?.username),
+      fetchPublicUser(a.userId, a.socket?.data?.username),
+    ]);
+
+    const conversation = await prisma.conversation.create({
+      data: {
+        type: 'DIRECT',
+        metadata: {
+          isMatch: true,
+          status: 'pending',
+          acceptedBy: [],
+        },
+        members: {
+          create: [
+            { userId: a.userId, role: 'MEMBER' },
+            { userId: b.userId, role: 'MEMBER' },
+          ],
+        },
+      },
+    });
+
+    const convRoom = `conversation:${conversation.id}`;
+    if (a.socket?.connected) a.socket.join(convRoom);
+    if (b.socket?.connected) b.socket.join(convRoom);
+
+    const payloadA = {
+      conversationId: conversation.id,
+      partner: peerOfMine,
+      peer: peerOfMine,
+      category: a.category || 'general',
+    };
+    const payloadB = {
+      conversationId: conversation.id,
+      partner: peerOfOpponent,
+      peer: peerOfOpponent,
+      category: b.category || 'general',
+    };
+
+    io.to(`user:${a.userId}`).emit('match:found', payloadA);
+    if (a.socket?.connected) a.socket.emit('match:found', payloadA);
+
+    io.to(`user:${b.userId}`).emit('match:found', payloadB);
+    if (b.socket?.connected) b.socket.emit('match:found', payloadB);
+
+    return conversation;
+  } catch (err) {
+    console.error('[matchmaking] tryServerFindMatch error:', err.message);
+    return null;
+  }
+}
+
+async function handleServerMatchAccept(conversationId, userId) {
+  if (!conversationId || !userId) return;
+  try {
+    const prisma = await matchPrisma();
+    const conv = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: { members: true },
+    });
+    if (!conv) return;
+    const meta = conv.metadata || {};
+    if (!meta.isMatch || meta.status === 'closed') return;
+
+    const acceptedBy = Array.isArray(meta.acceptedBy) ? [...meta.acceptedBy] : [];
+    if (!acceptedBy.includes(userId)) acceptedBy.push(userId);
+
+    const isMutual = acceptedBy.length >= 2;
+    const newStatus = isMutual ? 'accepted' : 'pending';
+
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        metadata: {
+          ...meta,
+          isMatch: true,
+          status: newStatus,
+          acceptedBy,
+        },
+      },
+    });
+
+    const convRoom = `conversation:${conversationId}`;
+    if (isMutual) {
+      io.to(convRoom).emit('match:mutual_accept', { conversationId });
+      for (const m of conv.members) {
+        io.to(`user:${m.userId}`).emit('match:mutual_accept', { conversationId });
+      }
+    } else {
+      const partner = conv.members.find((m) => m.userId !== userId);
+      if (partner) {
+        io.to(`user:${partner.userId}`).emit('match:peer_accepted', {
+          conversationId,
+          acceptedByUserId: userId,
+        });
+      }
+      io.to(convRoom).emit('match:peer_accepted', {
+        conversationId,
+        acceptedByUserId: userId,
+      });
+    }
+  } catch (err) {
+    console.error('[matchmaking] accept error:', err.message);
+  }
+}
+
+async function handleServerMatchReject(conversationId, userId, isNext = false, socket = null, category = 'general') {
+  if (!conversationId) return;
+  try {
+    const prisma = await matchPrisma();
+    const conv = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: { members: true },
+    });
+    if (conv) {
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: {
+          metadata: {
+            ...(conv.metadata || {}),
+            isMatch: true,
+            status: 'closed',
+          },
+        },
+      });
+    }
+
+    const convRoom = `conversation:${conversationId}`;
+    io.to(convRoom).emit('match:closed', {
+      conversationId,
+      reason: 'partner_left',
+      closedByUserId: userId,
+    });
+    if (conv?.members) {
+      for (const m of conv.members) {
+        io.to(`user:${m.userId}`).emit('match:closed', {
+          conversationId,
+          reason: 'partner_left',
+          closedByUserId: userId,
+        });
+      }
+    }
+
+    if (isNext && socket && userId) {
+      addToServerMatchQueue(userId, socket, category);
+      await tryServerFindMatch();
+    }
+  } catch (err) {
+    console.error('[matchmaking] reject error:', err.message);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1216,6 +1422,21 @@ io.on('connection', (socket) => {
   });
 
   // ── Matchmaking aleatorio ──────────────────────────────────────────────
+  socket.on('match:join', async (payload) => {
+    const myId = socket.data.userId;
+    if (!myId) return;
+    const category =
+      payload && typeof payload.category === 'string' && payload.category
+        ? payload.category
+        : 'general';
+    addToServerMatchQueue(myId, socket, category);
+    await tryServerFindMatch();
+  });
+
+  socket.on('match:leave', () => {
+    removeFromServerMatchQueue(socket.data.userId);
+  });
+
   socket.on('match:start', async (payload) => {
     const myId = socket.data.userId;
     if (!myId) return;
@@ -1223,51 +1444,37 @@ io.on('connection', (socket) => {
       payload && typeof payload.category === 'string' && payload.category
         ? payload.category
         : 'general';
-
-    removeFromMatchQueue(myId);
-
-    let waiters = matchQueue.get(category);
-    // Solo empareja con otro usuario (nunca consigo mismo, aunque tenga
-    // varias pestañas abiertas) cuyo socket siga vivo.
-    const opponent = waiters
-      ? [...waiters.entries()].find(
-          ([id, entry]) => id !== myId && entry.socket && entry.socket.connected,
-        )
-      : undefined;
-
-    if (opponent) {
-      const [opponentId, opponentEntry] = opponent;
-      clearTimeout(opponentEntry.timer);
-      waiters.delete(opponentId);
-      if (waiters.size === 0) matchQueue.delete(category);
-
-      const [peerOfMine, peerOfOpponent] = await Promise.all([
-        fetchPublicUser(opponentId, opponentEntry.socket.data.username),
-        fetchPublicUser(myId, socket.data.username),
-      ]);
-
-      io.to(`user:${myId}`).emit('match:found', { peer: peerOfMine, category });
-      io.to(`user:${opponentId}`).emit('match:found', { peer: peerOfOpponent, category });
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      const current = matchQueue.get(category);
-      if (!current || !current.has(myId)) return;
-      current.delete(myId);
-      if (current.size === 0) matchQueue.delete(category);
-      io.to(`user:${myId}`).emit('match:none', { category, reason: 'timeout' });
-    }, MATCH_TIMEOUT_MS);
-
-    if (!waiters) {
-      waiters = new Map();
-      matchQueue.set(category, waiters);
-    }
-    waiters.set(myId, { socket, timer });
+    addToServerMatchQueue(myId, socket, category);
+    await tryServerFindMatch();
   });
 
   socket.on('match:cancel', () => {
-    removeFromMatchQueue(socket.data.userId);
+    removeFromServerMatchQueue(socket.data.userId);
+  });
+
+  socket.on('match:accept', async (payload) => {
+    const myId = socket.data.userId;
+    const conversationId = payload?.conversationId;
+    if (!myId || !conversationId) return;
+    await handleServerMatchAccept(conversationId, myId);
+  });
+
+  socket.on('match:reject', async (payload) => {
+    const myId = socket.data.userId;
+    const conversationId = payload?.conversationId;
+    if (!myId || !conversationId) return;
+    await handleServerMatchReject(conversationId, myId, false, socket);
+  });
+
+  socket.on('match:next', async (payload) => {
+    const myId = socket.data.userId;
+    const conversationId = payload?.conversationId;
+    const category =
+      payload && typeof payload.category === 'string' && payload.category
+        ? payload.category
+        : 'general';
+    if (!myId || !conversationId) return;
+    await handleServerMatchReject(conversationId, myId, true, socket, category);
   });
 
   // Persistencia y broadcast de mensajes de sala vía Socket.IO.
@@ -1328,7 +1535,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    removeFromMatchQueue(socket.data.userId);
+    removeFromServerMatchQueue(socket.data.userId);
   });
 });
 

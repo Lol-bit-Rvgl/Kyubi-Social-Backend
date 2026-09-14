@@ -242,6 +242,8 @@ model User {
   assignedRoleSlots      RoleSlot[]
   followRequestsMade     FollowRequest[] @relation("FollowRequestsMade")
   followRequestsReceived FollowRequest[] @relation("FollowRequestsReceived")
+  blocksCreated          Block[]         @relation("BlocksCreated")
+  blocksReceived         Block[]         @relation("BlocksReceived")
 }
 
 /// Token FCM de un dispositivo registrado para notificaciones push.
@@ -514,6 +516,7 @@ model Conversation {
   id        String               @id @default(cuid())
   type      ConversationType     @default(DIRECT)
   title     String?              @db.VarChar(120)
+  metadata  Json                 @default("{}")
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
   members   ConversationMember[]
@@ -873,5 +876,21 @@ model PasswordResetToken {
   @@index([email])
   @@index([code])
   @@index([token])
+}
+
+/// Bloqueo entre usuarios para prevenir interacciones y matchmaking aleatorio.
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  reason    String?  @db.VarChar(300)
+  createdAt DateTime @default(now())
+
+  blocker   User     @relation("BlocksCreated", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("BlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
 }
 

@@ -117,5 +117,7 @@ export function serializeConversation(
     unreadCount,
     lastReadMessageId: myMember?.lastReadMessageId ?? null,
     muted: myMember?.muted ?? false,
+    metadata: ((conversation as any).metadata ?? {}) as Prisma.JsonObject,
+    extensions: ((conversation as any).metadata ?? {}) as Prisma.JsonObject,
   };
 }

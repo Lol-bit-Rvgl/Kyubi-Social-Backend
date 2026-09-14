@@ -85,6 +85,18 @@ const createSchema = z.object({
   access: z.enum(['PUBLIC', 'PRIVATE']).optional(),
   circleId: z.string().nullable().optional(),
   rules: z.array(z.string().trim().min(1).max(140)).max(10).optional(),
+  tags: z
+    .array(
+      z
+        .string()
+        .trim()
+        .min(1)
+        .max(30)
+        .transform((t) => t.replace(/^#+/, '').trim())
+        .refine((t) => t.length > 0, { message: 'La etiqueta no puede estar vacía' })
+    )
+    .max(5, { message: 'Máximo 5 etiquetas por sala' })
+    .optional(),
 });
 
 export const POST = withErrorHandling(async (request: Request) => {
@@ -122,6 +134,7 @@ export const POST = withErrorHandling(async (request: Request) => {
         access: body.data.access ?? 'PUBLIC',
         circleId: body.data.circleId ?? null,
         rules: body.data.rules ?? [],
+        tags: body.data.tags ?? [],
         hostId: session.userId,
         participants: { create: { userId: session.userId, role: 'HOST' } },
       },

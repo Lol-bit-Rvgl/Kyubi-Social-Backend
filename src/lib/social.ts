@@ -92,7 +92,15 @@ export function serializeRoom(
     : null;
   const rawStageRoles = (room as any).stageRoles ?? [];
   const stageRoles = Array.isArray(rawStageRoles)
-    ? rawStageRoles.map((r: any) => {
+    ? rawStageRoles
+        .filter(
+          (r: any) =>
+            r &&
+            typeof r === 'object' &&
+            r.id &&
+            String(r.name || '').trim().length > 0
+        )
+        .map((r: any) => {
         const assignedUserId = r.takenByUserId ?? r.occupiedBy ?? null;
         const assignedUsername = r.takenByUsername ?? r.occupiedByName ?? null;
         const isOccupied = Boolean(
@@ -135,6 +143,7 @@ export function serializeRoom(
     imageUrl: room.imageUrl,
     chatBackgroundUrl: room.chatBackgroundUrl,
     rules: Array.isArray((room as any).rules) ? (room as any).rules : [],
+    tags: Array.isArray((room as any).tags) ? (room as any).tags : [],
     cinemaVideoId: room.cinemaVideoId,
     cinemaState: room.cinemaState,
     cinemaCurrentTime: room.cinemaCurrentTime,

@@ -655,6 +655,8 @@ model Room {
   chatBackgroundUrl String?
   /// Reglas de convivencia personalizadas de la sala (máx 10 reglas de máx 140 chars c/u).
   rules             String[]          @default([])
+  /// Etiquetas temáticas de la sala (máx 5 etiquetas).
+  tags              String[]          @default([])
   hostId       String
   /// Estado del cine sincronizado (Sala de Cine / Screening):
   cinemaVideoId   String?

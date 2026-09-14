@@ -65,6 +65,18 @@ const patchSchema = z.object({
   imageUrl: z.string().nullable().optional(),
   chatBackgroundUrl: z.string().nullable().optional(),
   rules: z.array(z.string().trim().min(1).max(140)).max(10).optional(),
+  tags: z
+    .array(
+      z
+        .string()
+        .trim()
+        .min(1)
+        .max(30)
+        .transform((t) => t.replace(/^#+/, '').trim())
+        .refine((t) => t.length > 0, { message: 'La etiqueta no puede estar vacía' })
+    )
+    .max(5, { message: 'Máximo 5 etiquetas por sala' })
+    .optional(),
   capacity: z.number().int().min(2).max(500).nullable().optional(),
   access: z.enum(['PUBLIC', 'PRIVATE']).optional(),
   status: z.enum(['ACTIVE', 'ENDED']).optional(),
@@ -95,6 +107,7 @@ export const PATCH = withErrorHandling(async (request: Request, { params }: { pa
       ...(body.data.imageUrl !== undefined ? { imageUrl: body.data.imageUrl } : {}),
       ...(body.data.chatBackgroundUrl !== undefined ? { chatBackgroundUrl: body.data.chatBackgroundUrl } : {}),
       ...(body.data.rules !== undefined ? { rules: body.data.rules } : {}),
+      ...(body.data.tags !== undefined ? { tags: body.data.tags } : {}),
       ...(body.data.capacity !== undefined ? { capacity: body.data.capacity } : {}),
       ...(body.data.access !== undefined ? { access: body.data.access } : {}),
       ...(body.data.status !== undefined

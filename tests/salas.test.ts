@@ -34,6 +34,7 @@ const mockPrisma = vi.hoisted(() => {
 vi.mock('@/lib/prisma', () => ({ prisma: mockPrisma() }));
 
 import { prisma } from '@/lib/prisma';
+import { serializeRoom } from '@/lib/social';
 import { GET as listSalas, POST as createSala } from '@/app/salas/route';
 import { GET as getSala, PATCH as patchSala, DELETE as deleteSala } from '@/app/salas/[id]/route';
 import { POST as joinSala } from '@/app/salas/[id]/join/route';
@@ -1300,6 +1301,84 @@ describe('salas', () => {
       );
 
       expect(res.status).toBe(403);
+    });
+  });
+
+  describe('purga de roles fantasma y persistencia de tags', () => {
+    it('serializeRoom purga roles corruptos sin id o con name vacío y expone tags', () => {
+      const corruptRoom = baseRoom({
+        tags: ['anime', 'rol'],
+        stageRoles: [
+          { id: 'role-valid', name: 'Guerrero', isTaken: false },
+          { id: '', name: 'Fantasma' },
+          { id: 'role-empty-name', name: '   ' },
+          null,
+          { name: 'Sin ID' },
+        ],
+      });
+
+      const serialized = serializeRoom(corruptRoom as any);
+      expect(serialized.stageRoles).toHaveLength(1);
+      expect(serialized.stageRoles[0].id).toBe('role-valid');
+      expect(serialized.stageRoles[0].name).toBe('Guerrero');
+      expect(serialized.tags).toEqual(['anime', 'rol']);
+    });
+
+    it('patchSala actualiza tags sanitizando prefijos # y validando límite de 5', async () => {
+      const token = await tokenFor('user-1');
+      m.room.findUnique.mockResolvedValue({
+        id: 'room-1',
+        hostId: 'user-1',
+        status: 'ACTIVE',
+      });
+      const updated = baseRoom({
+        tags: ['anime', 'rol', 'gaming', 'cosplay', 'manga'],
+      });
+      m.room.update.mockResolvedValue(updated);
+
+      const res = await patchSala(
+        jsonRequest('http://localhost/salas/room-1', {
+          method: 'PATCH',
+          token,
+          body: {
+            tags: ['#anime', ' rol ', '#gaming', 'cosplay', '#manga'],
+          },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.tags).toEqual(['anime', 'rol', 'gaming', 'cosplay', 'manga']);
+      expect(m.room.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            tags: ['anime', 'rol', 'gaming', 'cosplay', 'manga'],
+          }),
+        })
+      );
+    });
+
+    it('patchSala rechaza más de 5 tags con 400', async () => {
+      const token = await tokenFor('user-1');
+      m.room.findUnique.mockResolvedValue({
+        id: 'room-1',
+        hostId: 'user-1',
+        status: 'ACTIVE',
+      });
+
+      const res = await patchSala(
+        jsonRequest('http://localhost/salas/room-1', {
+          method: 'PATCH',
+          token,
+          body: {
+            tags: ['tag1', 'tag2', 'tag3', 'tag4', 'tag5', 'tag6'],
+          },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+
+      expect(res.status).toBe(400);
     });
   });
 });

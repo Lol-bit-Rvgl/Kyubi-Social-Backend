@@ -59,7 +59,15 @@ export const POST = withErrorHandling(
 
     const { action, role, roleId } = parsed.data;
 
-    let currentStageRoles = Array.isArray(room.stageRoles) ? [...(room.stageRoles as any[])] : [];
+    let currentStageRoles = Array.isArray(room.stageRoles)
+      ? (room.stageRoles as any[]).filter(
+          (r) =>
+            r &&
+            typeof r === 'object' &&
+            r.id &&
+            String(r.name || '').trim().length > 0
+        )
+      : [];
 
     // ── GESTIÓN DE ROLES (CREAR / EDITAR / ELIMINAR) ──
     if (action === 'create' || action === 'update') {

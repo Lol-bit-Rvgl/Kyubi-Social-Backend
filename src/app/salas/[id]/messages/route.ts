@@ -306,11 +306,50 @@ const sendSchema = z.object({
     ),
 });
 
+const restRoomChatRateLimits = new Map<string, { timestamps: number[]; lastSent: number }>();
+
+function checkRestRoomChatRateLimit(userId: string): { limited: boolean; retryAfterMs: number } {
+  const now = Date.now();
+  const record = restRoomChatRateLimits.get(userId) || { timestamps: [], lastSent: 0 };
+
+  // 1. Mínimo 1.2 segundos entre mensajes consecutivos
+  if (now - record.lastSent < 1200) {
+    return { limited: true, retryAfterMs: 1200 - (now - record.lastSent) };
+  }
+
+  // 2. Máximo 4 mensajes por cada 5 segundos
+  const windowMs = 5000;
+  record.timestamps = record.timestamps.filter((ts) => now - ts < windowMs);
+  if (record.timestamps.length >= 4) {
+    const oldest = record.timestamps[0];
+    return { limited: true, retryAfterMs: windowMs - (now - oldest) };
+  }
+
+  record.lastSent = now;
+  record.timestamps.push(now);
+  restRoomChatRateLimits.set(userId, record);
+
+  if (restRoomChatRateLimits.size > 5000) {
+    for (const [uid, r] of restRoomChatRateLimits.entries()) {
+      if (now - r.lastSent > 60000) {
+        restRoomChatRateLimits.delete(uid);
+      }
+    }
+  }
+
+  return { limited: false, retryAfterMs: 0 };
+}
+
 export const POST = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   // Bloquea usuarios baneados/silenciados: no solo dependemos del JWT (15 min).
   const session = await assertCanCreateContent(request);
   if (session instanceof Response) return session;
   const { id } = await params;
+
+  const rateLimitCheck = checkRestRoomChatRateLimit(session.userId);
+  if (rateLimitCheck.limited) {
+    return fail('Por favor no spamees. Espera un momento antes de enviar otro mensaje.', 429);
+  }
 
   const room = await prisma.room.findUnique({
     where: { id },

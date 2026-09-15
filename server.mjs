@@ -623,13 +623,56 @@ async function checkUserSanction(prisma, userId) {
     };
   }
 
-  return null;
+// Rate limiting en memoria para chat de salas
+const roomChatRateLimits = new Map();
+
+function checkRoomChatRateLimit(userId) {
+  const now = Date.now();
+  const record = roomChatRateLimits.get(userId) || { timestamps: [], lastSent: 0 };
+
+  // 1. Mínimo 1.2 segundos entre mensajes consecutivos
+  if (now - record.lastSent < 1200) {
+    return { limited: true, retryAfterMs: 1200 - (now - record.lastSent) };
+  }
+
+  // 2. Máximo 4 mensajes por cada 5 segundos
+  const windowMs = 5000;
+  record.timestamps = record.timestamps.filter((ts) => now - ts < windowMs);
+  if (record.timestamps.length >= 4) {
+    const oldest = record.timestamps[0];
+    return { limited: true, retryAfterMs: windowMs - (now - oldest) };
+  }
+
+  // Actualizar registro
+  record.lastSent = now;
+  record.timestamps.push(now);
+  roomChatRateLimits.set(userId, record);
+
+  // Limpieza defensiva de registros obsoletos si el Map crece mucho
+  if (roomChatRateLimits.size > 5000) {
+    for (const [uid, r] of roomChatRateLimits.entries()) {
+      if (now - r.lastSent > 60000) {
+        roomChatRateLimits.delete(uid);
+      }
+    }
+  }
+
+  return { limited: false, retryAfterMs: 0 };
 }
 
 async function handleSendRoomMessage(socket, payload) {
   const userId = socket.userId || socket.data?.userId;
   if (!userId) return;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+
+  const rateLimitCheck = checkRoomChatRateLimit(userId);
+  if (rateLimitCheck.limited) {
+    socket.emit('room:rate_limited', {
+      message: 'Por favor no spamees. Espera un momento antes de enviar otro mensaje.',
+      retryAfterMs: Math.max(1200, Math.ceil(rateLimitCheck.retryAfterMs)),
+    });
+    return;
+  }
 
   const roomId = typeof payload.roomId === 'string' ? payload.roomId : '';
   if (!roomId) return;

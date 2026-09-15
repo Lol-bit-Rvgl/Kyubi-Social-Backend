@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHmac, createHash } from 'node:crypto';
 import next from 'next';
 import { Server as SocketIOServer } from 'socket.io';
 import { jwtVerify } from 'jose';
@@ -73,6 +73,10 @@ if (!dev && JWT_PLACEHOLDERS.includes(rawSecret.trim())) {
 }
 const secret = new TextEncoder().encode(rawSecret);
 
+// ── HMAC Client Request Signature Configuration ──────────────────────────────
+const CLIENT_SIGN_SECRET = process.env.KYUBI_CLIENT_SIGN_SECRET || 'kyubi-hjtrfs-client-sign-v1';
+const SIGNATURE_MAX_SKEW_MS = 5 * 60 * 1000; // 5 minutos de tolerancia de descalce horario
+
 try {
   await app.prepare();
 } catch (err) {
@@ -88,6 +92,25 @@ const server = createServer(async (req, res) => {
     (typeof req.headers['x-request-id'] === 'string' && req.headers['x-request-id']) ||
     randomUUID();
   res.setHeader('x-request-id', requestId);
+
+  // ── Telemetría de Firma HMAC de Cliente (RequestSignature) ────────────────
+  const signatureHeader = req.headers['x-signature'] || req.headers['x-kyubi-client-signature'];
+  if (signatureHeader && typeof signatureHeader === 'string') {
+    const match = signatureHeader.match(/^HJTRFS\s+(\d+)\.([a-fA-F0-9]+)$/);
+    if (!match) {
+      console.warn(
+        `[HMAC] Cabecera de firma con formato inválido: [requestId: ${requestId}] [${req.method} ${req.url}] header: "${signatureHeader}"`
+      );
+    } else {
+      const clientTs = parseInt(match[1], 10);
+      const timeDiff = Math.abs(Date.now() - clientTs);
+      if (timeDiff > SIGNATURE_MAX_SKEW_MS) {
+        console.warn(
+          `[HMAC] Descalce horario detectado: [requestId: ${requestId}] [${req.method} ${req.url}] diff: ${timeDiff}ms > ${SIGNATURE_MAX_SKEW_MS}ms (clientTs: ${clientTs})`
+        );
+      }
+    }
+  }
 
   // ───────────────────────────────────────────────────────────────────────────
   // CORS HTTP real (lógica incrustada arriba en server.mjs; aquí se aplica a
@@ -1368,6 +1391,27 @@ async function handleRoomVoiceModeration(socket, payload) {
   }
 }
 
+function handleRoomInvite(socket, payload) {
+  const senderId = socket.userId || socket.data?.userId;
+  const senderUsername = socket.data?.username || 'Usuario';
+  if (!senderId || !payload || typeof payload !== 'object') return;
+  const targetUserId = typeof payload.targetUserId === 'string' ? payload.targetUserId.trim() : '';
+  const roomId = typeof payload.roomId === 'string' ? payload.roomId.trim() : '';
+  if (!targetUserId || !roomId) return;
+
+  const inviteData = {
+    roomId,
+    roomName: typeof payload.roomName === 'string' ? payload.roomName.slice(0, 100) : 'Sala',
+    roomBanner: typeof payload.roomBanner === 'string' ? payload.roomBanner.slice(0, 2048) : null,
+    senderId,
+    senderUsername,
+    timestamp: new Date().toISOString(),
+  };
+
+  io.to(`user:${targetUserId}`).emit('room:invited', inviteData);
+  console.log(`[room:invite] Invitación emitida de ${senderUsername} (${senderId}) a usuario ${targetUserId} para sala ${roomId}`);
+}
+
 io.use((socket, nextFn) => {
   const auth = socket.handshake.auth ?? {};
   const header = socket.handshake.headers?.authorization ?? '';
@@ -1588,6 +1632,11 @@ io.on('connection', (socket) => {
   });
   socket.on('room:voice_moderation', (payload) => {
     handleRoomVoiceModeration(socket, payload);
+  });
+
+  // Invitaciones a salas en tiempo real
+  socket.on('room:invite', (payload) => {
+    handleRoomInvite(socket, payload);
   });
 
   socket.on('disconnect', () => {

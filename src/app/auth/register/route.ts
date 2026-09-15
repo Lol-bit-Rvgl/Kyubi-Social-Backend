@@ -3,15 +3,27 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { clientIp, issueTokenPair } from '@/lib/auth';
 import { createRateLimiter } from '@/lib/rate-limit';
+import { NextResponse } from 'next/server';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { sendVerificationEmail } from '@/lib/verification';
 
 const input = z.object({
-  email: z.string().email(),
-  username: z.string().min(3).max(30).regex(/^[a-zA-Z0-9_]+$/),
-  password: z.string().min(8).max(128),
-  displayName: z.string().min(1).max(30).optional(),
+  email: z.string().email('El correo electrónico no es válido'),
+  username: z
+    .string()
+    .min(3, 'El nombre de usuario debe tener al menos 3 caracteres')
+    .max(30, 'El nombre de usuario no puede tener más de 30 caracteres')
+    .regex(/^[a-zA-Z0-9_]+$/, 'El nombre de usuario solo puede contener letras, números y guiones bajos'),
+  password: z
+    .string()
+    .min(8, 'La contraseña debe tener al menos 8 caracteres')
+    .max(128, 'La contraseña es demasiado larga'),
+  displayName: z
+    .string()
+    .min(1, 'El nombre no puede estar vacío')
+    .max(30, 'El nombre no puede tener más de 30 caracteres')
+    .optional(),
 });
 const limiter = createRateLimiter({ windowMs: 15 * 60_000, max: 5 });
 
@@ -22,8 +34,13 @@ export const POST = withErrorHandling(async (request: Request) => {
 
   const parsed = input.safeParse(body);
   if (!parsed.success) {
-    console.error('Error en registro: validación fallida', JSON.stringify(parsed.error.issues));
-    return fail('Datos de registro inválidos');
+    const firstIssue = parsed.error.issues[0];
+    const message = firstIssue?.message || 'Datos de registro inválidos';
+    console.warn('Error en registro: validación fallida', JSON.stringify(parsed.error.issues));
+    return NextResponse.json(
+      { error: 'validation_error', message, issues: parsed.error.issues },
+      { status: 400 }
+    );
   }
 
   const { email, username, password, displayName } = parsed.data;

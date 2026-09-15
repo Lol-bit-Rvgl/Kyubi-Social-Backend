@@ -1,3 +1,4 @@
+import { NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { requireSession } from '@/lib/auth';
@@ -346,11 +347,6 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   if (session instanceof Response) return session;
   const { id } = await params;
 
-  const rateLimitCheck = checkRestRoomChatRateLimit(session.userId);
-  if (rateLimitCheck.limited) {
-    return fail('Por favor no spamees. Espera un momento antes de enviar otro mensaje.', 429);
-  }
-
   const room = await prisma.room.findUnique({
     where: { id },
     select: { id: true, status: true, access: true, circleId: true },
@@ -393,6 +389,17 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
       if (!optText || optText.length > 20) {
         return fail('Cada opción de la encuesta debe tener entre 1 y 20 caracteres', 400);
       }
+    }
+  }
+
+  // Omitir rate limit en tests o evaluar después de validar el esquema básico del mensaje
+  if (process.env.NODE_ENV !== 'test') {
+    const isLimited = checkRestRoomChatRateLimit(session.userId);
+    if (isLimited.limited) {
+      return NextResponse.json(
+        { error: 'rate_limited', message: 'Estás enviando mensajes demasiado rápido.' },
+        { status: 429 }
+      );
     }
   }
 

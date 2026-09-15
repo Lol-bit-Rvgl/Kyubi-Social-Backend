@@ -25,7 +25,7 @@ export type MePayload = {
   themeSettings?: unknown;
   availability: unknown;
   createdAt: Date;
-  _count: { followers: number; following: number };
+  _count: { followers: number; following: number; visitsReceived?: number };
 };
 
 export function serializeMe(user: MePayload) {
@@ -44,6 +44,8 @@ export function serializeMe(user: MePayload) {
       glassStyle: 'frosted',
     };
   }
+
+  const visitsCount = user._count?.visitsReceived ?? 0;
 
   return {
     id: user.id,
@@ -73,6 +75,12 @@ export function serializeMe(user: MePayload) {
     isFollowing: false,
     followersCount: user._count?.followers ?? 0,
     followingCount: user._count?.following ?? 0,
+    profileViews: visitsCount,
+    visitorsCount: visitsCount,
+    extensions: {
+      profileViews: visitsCount,
+      visitorsCount: visitsCount,
+    },
   };
 }
 
@@ -101,5 +109,5 @@ export const meSelect = {
   hasPaymentPassword: true,
   availability: true,
   createdAt: true,
-  _count: { select: { followers: true, following: true } },
+  _count: { select: { followers: true, following: true, visitsReceived: true } },
 } as const;

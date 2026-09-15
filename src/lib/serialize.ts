@@ -242,12 +242,14 @@ export type PublicUser = {
   onboardingCompleted?: boolean | null;
   createdAt?: Date | string;
   themeSettings?: unknown;
-  _count?: { followers?: number; following?: number; posts?: number } | null;
+  _count?: { followers?: number; following?: number; posts?: number; visitsReceived?: number } | null;
+  visitsCount?: number;
 };
 
 export function serializeUser(user: PublicUser, opts: { isFollowing?: boolean; isMe?: boolean; pendingFollow?: boolean } = {}) {
   const followers = user._count?.followers ?? 0;
   const following = user._count?.following ?? 0;
+  const visitsCount = user.visitsCount ?? user._count?.visitsReceived ?? 0;
   let themeSettings = (user as any).themeSettings;
   if (typeof themeSettings === 'string') {
     try {
@@ -286,6 +288,12 @@ export function serializeUser(user: PublicUser, opts: { isFollowing?: boolean; i
     pendingFollow: opts.pendingFollow ?? false,
     followersCount: followers,
     followingCount: following,
+    profileViews: visitsCount,
+    visitorsCount: visitsCount,
+    extensions: {
+      profileViews: visitsCount,
+      visitorsCount: visitsCount,
+    },
     hasPaymentPassword: opts.isMe ? false : undefined,
   };
 }

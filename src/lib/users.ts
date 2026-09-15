@@ -22,7 +22,7 @@ export async function findUserByIdOrUsername(value: string) {
       emailVerifiedAt: true,
       onboardingCompleted: true,
       createdAt: true,
-      _count: { select: { followers: true, following: true, posts: true } },
+      _count: { select: { followers: true, following: true, posts: true, visitsReceived: true } },
     },
   });
 }

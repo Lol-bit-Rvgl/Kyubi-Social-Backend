@@ -91,17 +91,21 @@ function roomRow(overrides: Record<string, unknown> = {}) {
 // ── GET /search ─────────────────────────────────────────────────────────
 
 describe('GET /search', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    m.circle.findMany.mockResolvedValue([]);
+    m.circleMember.findMany.mockResolvedValue([]);
+  });
 
   it('401 sin sesión', async () => {
     const res = await search(jsonRequest('http://localhost/search?q=hola'));
     expect(res.status).toBe(401);
   });
 
-  it('devuelve resultados vacíos cuando q < 2 caracteres', async () => {
+  it('devuelve resultados vacíos cuando q < 1 caracter', async () => {
     const token = await tokenFor();
     const res = await search(
-      jsonRequest('http://localhost/search?q=x&type=all', { token }),
+      jsonRequest('http://localhost/search?q=&type=all', { token }),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -109,8 +113,9 @@ describe('GET /search', () => {
     expect(body.posts).toEqual([]);
     expect(body.users).toEqual([]);
     expect(body.rooms).toEqual([]);
+    expect(body.circles).toEqual([]);
     expect(body.total).toBe(0);
-    expect(body.query).toBe('x');
+    expect(body.query).toBe('');
     expect(body.type).toBe('all');
     expect(m.$queryRawUnsafe).not.toHaveBeenCalled();
   });

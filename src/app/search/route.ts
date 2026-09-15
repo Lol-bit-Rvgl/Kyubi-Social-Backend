@@ -1,9 +1,10 @@
 import { requireSession } from '@/lib/auth';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
+import { circleInclude, memberRoles, serializeCircle } from '@/lib/social';
 
 /**
- * GET /search?q=&type=all|posts|users|rooms&limit=&offset=
+ * GET /search?q=&type=all|posts|users|rooms|circles&limit=&offset=
  *
  * Búsqueda full-text PostgreSQL (tsvector/tsquery) con ranking de relevancia
  * `ts_rank` sobre los índices GIN de posts, usuarios y salas. Fallback suave
@@ -88,7 +89,7 @@ const USER_FIELDS = `u."id", u."username", u."displayName", u."avatarUrl",
   u."level", u."isOnline"`;
 const ROOM_FIELDS = `r."id", r."name", r."description", r."imageUrl",
   (SELECT u2."displayName" FROM "User" u2 WHERE u2."id" = r."hostId") AS "hostName",
-  (SELECT COUNT(*) FROM "RoomParticipant" rp WHERE rp."roomId" = r."id") AS "participantCount"`;
+  CAST((SELECT COUNT(*) FROM "RoomParticipant" rp WHERE rp."roomId" = r."id") AS integer) AS "participantCount"`;
 
 export const GET = withErrorHandling(async (request: Request) => {
   const session = await requireSession(request);
@@ -103,30 +104,37 @@ export const GET = withErrorHandling(async (request: Request) => {
   const offsetRaw = Number(url.searchParams.get('offset') ?? 0);
   const offset = Number.isFinite(offsetRaw) ? Math.max(offsetRaw, 0) : 0;
 
-    if (q.length < 2) {
-    return ok({ data: [], posts: [], users: [], rooms: [], query: q, type, total: 0 });
+  if (q.length < 1) {
+    return ok({ data: [], posts: [], users: [], rooms: [], circles: [], query: q, type, total: 0 });
   }
 
   const wantPosts = type === 'all' || type === 'posts';
   const wantUsers = type === 'all' || type === 'users';
   const wantRooms = type === 'all' || type === 'rooms';
+  const wantCircles = type === 'all' || type === 'circles';
 
-  const [posts, users, rooms] = await Promise.all([
+  const [posts, users, rooms, circles] = await Promise.all([
     wantPosts ? searchPosts(qClean, limit, offset) : Promise.resolve([] as RawPostRow[]),
     wantUsers
       ? searchUsers(qClean, limit, offset, session.userId)
       : Promise.resolve([] as (RawUserRow & { isFollowing: boolean })[]),
-    wantRooms ? searchRooms(qClean, limit, offset) : Promise.resolve([] as RawRoomRow[]),
+    wantRooms
+      ? searchRooms(qClean, limit, offset)
+      : Promise.resolve([] as (Omit<RawRoomRow, 'participantCount'> & { participantCount: number })[]),
+    wantCircles
+      ? searchCircles(qClean, limit, offset, session.userId)
+      : Promise.resolve([] as ReturnType<typeof serializeCircle>[]),
   ]);
 
   return ok({
-    data: [...posts, ...users, ...rooms],
+    data: [...posts, ...users, ...rooms, ...circles],
     posts,
     users,
     rooms,
+    circles,
     query: q,
     type,
-    total: posts.length + users.length + rooms.length,
+    total: posts.length + users.length + rooms.length + circles.length,
   });
 
   // ── Full-text + fallback ILIKE ──────────────────────────────────────────
@@ -220,7 +228,11 @@ export const GET = withErrorHandling(async (request: Request) => {
     }));
   }
 
-  async function searchRooms(query: string, take: number, skip: number): Promise<RawRoomRow[]> {
+  async function searchRooms(
+    query: string,
+    take: number,
+    skip: number,
+  ): Promise<(Omit<RawRoomRow, 'participantCount'> & { participantCount: number })[]> {
     const tsRows = await prisma.$queryRawUnsafe<RawRoomRow[]>(
       `SELECT ${ROOM_FIELDS}, ts_rank(
           to_tsvector($1, coalesce(r."name", '') || ' ' || coalesce(r."description", '')),
@@ -236,22 +248,48 @@ export const GET = withErrorHandling(async (request: Request) => {
       take,
       skip,
     );
-    if (tsRows.length >= Math.min(take, 5)) return tsRows;
+    let rows = tsRows;
+    if (tsRows.length < Math.min(take, 5)) {
+      const escaped = escapeLike(query);
+      const likeRows = await prisma.$queryRawUnsafe<RawRoomRow[]>(
+        `SELECT ${ROOM_FIELDS}, 0 AS rank
+         FROM "Room" r
+         WHERE r."status" = 'ACTIVE' AND r."access" = 'PUBLIC'
+           AND (r."name" ILIKE $1 OR r."description" ILIKE $2)
+         ORDER BY r."createdAt" DESC
+         LIMIT $3 OFFSET $4`,
+        `%${escaped}%`,
+        `%${escaped}%`,
+        take,
+        skip,
+      );
+      rows = mergeRows(tsRows, likeRows, (r) => r.id);
+    }
+    return rows.map((r) => ({
+      ...r,
+      participantCount: Number(r.participantCount),
+    }));
+  }
 
-    const escaped = escapeLike(query);
-    const likeRows = await prisma.$queryRawUnsafe<RawRoomRow[]>(
-      `SELECT ${ROOM_FIELDS}, 0 AS rank
-       FROM "Room" r
-       WHERE r."status" = 'ACTIVE' AND r."access" = 'PUBLIC'
-         AND (r."name" ILIKE $1 OR r."description" ILIKE $2)
-       ORDER BY r."createdAt" DESC
-       LIMIT $3 OFFSET $4`,
-      `%${escaped}%`,
-      `%${escaped}%`,
+  async function searchCircles(query: string, take: number, skip: number, viewerId: string) {
+    if (!query) return [];
+    const foundCircles = await prisma.circle.findMany({
+      where: {
+        isPrivate: false,
+        OR: [
+          { name: { contains: query, mode: 'insensitive' } },
+          { description: { contains: query, mode: 'insensitive' } },
+        ],
+      },
+      orderBy: [{ members: { _count: 'desc' } }, { createdAt: 'desc' }],
       take,
       skip,
+      include: circleInclude,
+    });
+    const roles = await memberRoles(prisma, foundCircles.map((c) => c.id), viewerId);
+    return foundCircles.map((circle) =>
+      serializeCircle(circle, { myUserId: viewerId, role: roles.get(circle.id) ?? null })
     );
-    return mergeRows(tsRows, likeRows, (r) => r.id);
   }
 
   function mergeRows<T>(primary: T[], fallback: T[], key: (row: T) => string): T[] {

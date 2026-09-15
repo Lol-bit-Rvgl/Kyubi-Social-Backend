@@ -1,0 +1,53 @@
+PolyForm Noncommercial License 1.0.1
+<https://polyformproject.org/licenses/noncommercial/1.0.1>
+
+Copyright (c) 2026 Kyubi Developers
+All Rights Reserved.
+
+Permission is hereby granted to any person obtaining a copy of this software
+and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy,
+modify, merge, publish, distribute, sublicense, and/or sell copies of the
+Software, subject to the following condition:
+
+You may not exercise any of the permissions granted to you by this license
+for any Commercial Purpose.
+
+"Commercial Purpose" means any use or exploitation for financial gain or
+commercial advantage, including selling, licensing, providing services for
+a fee, or running a commercial cloud/SaaS offering based on the Software.
+
+IMPORTANT NOTICE - ALL RIGHTS RESERVED:
+
+This software and its associated infrastructure, including but not limited to:
+- Chat rooms and messaging systems
+- Real-time communication protocols
+- User authentication and authorization systems
+- Database schemas and data models
+- API endpoints and services
+- Frontend and backend architectures
+- Any proprietary algorithms, methods, or implementations
+
+Are protected under copyright and all rights are reserved by Kyubi Developers.
+
+No person or entity may:
+1. Reproduce, copy, or distribute this software for commercial purposes
+2. Create derivative works based on this software for commercial purposes
+3. Clone, replicate, or create competing services using this software's infrastructure
+4. Use this software to operate chat rooms, social platforms, or messaging services for financial gain
+5. Reverse engineer, decompile, or disassemble any part of this software for commercial purposes
+6. Extract, reuse, or adapt any proprietary components for similar services
+
+Any unauthorized use, reproduction, or commercial exploitation of this software,
+its infrastructure, or any portion thereof is strictly prohibited and will be
+subject to legal action to protect Kyubi's intellectual property and business interests.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+For licensing inquiries, contact: Kyubi Developers in Kyubioficial@gmail.com

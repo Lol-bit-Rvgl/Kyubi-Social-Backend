@@ -22,18 +22,23 @@ async function canManageRoom(roomId: string, userId: string): Promise<boolean> {
   return Boolean(participant && MANAGEABLE_ROLES.has(participant.role.toUpperCase()));
 }
 
-const roleSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().trim().min(1).max(20),
-  avatarUrl: z.string().nullable().optional(),
-  colorHex: z.string().optional().default('#00E5FF'),
-  tagline: z.string().trim().max(30).optional().default(''),
-  description: z.string().trim().max(300).optional().default(''),
-  language: z.string().optional().default('Español'),
-  isTaken: z.boolean().optional(),
-  takenByUserId: z.string().nullable().optional(),
-  takenByUsername: z.string().nullable().optional(),
-});
+const roleSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().trim().min(1).max(20),
+    avatarUrl: z.string().nullable().optional(),
+    colorHex: z.string().optional().default('#00E5FF'),
+    tagline: z.string().trim().max(30).optional().default(''),
+    description: z.string().trim().max(300).optional().default(''),
+    language: z.string().optional().default('Español'),
+    isTaken: z.boolean().optional(),
+    isOccupied: z.boolean().optional(),
+    takenByUserId: z.string().nullable().optional(),
+    takenByUsername: z.string().nullable().optional(),
+    occupiedBy: z.string().nullable().optional(),
+    occupiedByName: z.string().nullable().optional(),
+  })
+  .passthrough();
 
 const bodySchema = z.object({
   action: z.enum(['take', 'leave', 'create', 'update', 'delete']).optional(),

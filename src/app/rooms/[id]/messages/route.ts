@@ -64,7 +64,8 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
 });
 
 const sendSchema = z.object({
-  body: z.string().trim().min(1).max(4000),
+  body: z.string().trim().max(4000).optional().default(''),
+  content: z.string().trim().max(4000).optional(),
   mediaUrl: optionalSafeHttpUrl,
   mediaType: z.string().nullable().optional(),
   replyToId: z.string().nullable().optional(),
@@ -90,6 +91,16 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
 
   const body = sendSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return fail('Datos inválidos');
+
+  const rawBody =
+    body.data.body ||
+    body.data.content ||
+    (body.data.mediaUrl ? '[Imagen adjunta]' : '');
+
+  if (!rawBody && !body.data.mediaUrl) {
+    return fail('El contenido del mensaje no puede estar vacío', 400);
+  }
+
   if (body.data.replyToId) {
     const reply = await prisma.message.findFirst({
       where: { id: body.data.replyToId, conversationId: id },
@@ -98,14 +109,18 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
     if (!reply) return fail('Mensaje de referencia no encontrado', 404);
   }
 
+  const effectiveBody = rawBody || '[Imagen adjunta]';
+  const effectiveMediaType =
+    body.data.mediaType ?? (body.data.mediaUrl ? 'image' : null);
+
   const message = await prisma.$transaction(async (tx) => {
     const created = await tx.message.create({
       data: {
         conversationId: id,
         senderId: session.userId,
-        body: body.data.body,
+        body: effectiveBody,
         mediaUrl: body.data.mediaUrl ?? null,
-        mediaType: body.data.mediaType ?? null,
+        mediaType: effectiveMediaType,
         replyToId: body.data.replyToId ?? null,
 
         characterId: body.data.characterId ?? null,

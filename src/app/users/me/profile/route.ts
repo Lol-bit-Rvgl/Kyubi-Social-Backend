@@ -7,7 +7,7 @@ import { prisma } from '@/lib/prisma';
 
 const profile = z.object({
   displayName: z.string().min(1).max(30).optional(),
-  bio: z.string().max(300).nullable().optional(),
+  bio: z.string().max(1000).nullable().optional(),
   avatarUrl: z.string().nullable().optional(),
   usernameColor: z.string().nullable().optional(),
   themeSettings: z

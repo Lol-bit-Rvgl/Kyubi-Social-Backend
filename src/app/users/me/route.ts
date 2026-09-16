@@ -18,7 +18,7 @@ const themeSettingsSchema = z.object({
 
 const editable = z.object({
   displayName: z.string().min(1).max(80).optional(),
-  bio: z.string().max(500).nullable().optional(),
+  bio: z.string().max(1000).nullable().optional(),
   avatarUrl: optionalSafeHttpUrl,
   bannerUrl: optionalSafeHttpUrl,
   usernameColor: z.string().nullable().optional(),

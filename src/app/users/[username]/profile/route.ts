@@ -12,7 +12,7 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
   if (username === 'me') {
     const me = await prisma.user.findUnique({
       where: { id: session.userId },
-      include: { _count: { select: { followers: true, following: true, posts: true } } },
+      include: { _count: { select: { followers: true, following: true, posts: true, visitsReceived: true } } },
     });
     if (!me) return fail('Usuario no encontrado', 404);
     const meId = me.id;

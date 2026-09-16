@@ -8,7 +8,7 @@ import { optionalSafeHttpUrl } from '@/lib/validation';
 // POST /users/onboarding (server-driven). El cliente no puede forzarlo.
 const editable = z.object({
   displayName: z.string().min(1).max(80).optional(),
-  bio: z.string().max(500).nullable().optional(),
+  bio: z.string().max(1000).nullable().optional(),
   avatarUrl: optionalSafeHttpUrl,
 });
 
@@ -22,7 +22,7 @@ const meSelect = {
   emailVerifiedAt: true,
   onboardingCompleted: true,
   createdAt: true,
-  _count: { select: { followers: true, following: true } },
+  _count: { select: { followers: true, following: true, visitsReceived: true } },
 } as const;
 
 function withCounts(user: {

@@ -32,6 +32,7 @@ const createSchema = z.object({
   warnSpoiler: z.boolean().optional(),
   allowComments: z.boolean().optional(),
   allowReactions: z.boolean().optional(),
+  circleId: z.string().trim().nullable().optional(),
 });
 
 export const POST = withErrorHandling(async (request: Request) => {
@@ -43,13 +44,15 @@ export const POST = withErrorHandling(async (request: Request) => {
   const rawBody = (body.data.body || body.data.content || '').trim();
   if (!rawBody) return fail('El contenido no puede estar vacío', 400);
 
-  const { body: _b, content: _c, ...rest } = body.data;
+  const { body: _b, content: _c, circleId: rawCircleId, ...rest } = body.data;
+  const circleId = rawCircleId?.trim() || null;
   const post = await prisma.post.create({
     data: {
       ...rest,
       content: rawBody,
       authorId: session.userId,
       publishedAt: new Date(),
+      ...(circleId ? { circleId } : {}),
     },
     include: postFullInclude,
   });

@@ -4,11 +4,12 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "node server.mjs",
+    "postinstall": "prisma generate",
     "build": "npx prisma generate && next build",
     "start": "NODE_ENV=production node server.mjs",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy",
+    "db:generate": "npx prisma generate",
+    "db:migrate": "npx prisma migrate dev",
+    "db:deploy": "npx prisma migrate deploy",
     "db:seed": "npx tsx prisma/seed.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

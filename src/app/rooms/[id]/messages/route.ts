@@ -92,12 +92,18 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   const body = sendSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return fail('Datos inválidos');
 
-  const rawBody =
-    body.data.body ||
-    body.data.content ||
-    (body.data.mediaUrl ? '[Imagen adjunta]' : '');
+  const rawBody = body.data.body || body.data.content || '';
+  const hasAttachment = Boolean(body.data.mediaUrl);
+  const hasExtension = Boolean(
+    body.data.extensions && Object.keys(body.data.extensions).length > 0
+  );
+  const isSpecialType =
+    body.data.mediaType === 'sticker' ||
+    body.data.mediaType === 'audio' ||
+    body.data.mediaType === 'poll' ||
+    body.data.mediaType === 'dice';
 
-  if (!rawBody && !body.data.mediaUrl) {
+  if (!rawBody && !hasAttachment && !hasExtension && !isSpecialType) {
     return fail('El contenido del mensaje no puede estar vacío', 400);
   }
 
@@ -109,7 +115,7 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
     if (!reply) return fail('Mensaje de referencia no encontrado', 404);
   }
 
-  const effectiveBody = rawBody || '[Imagen adjunta]';
+  const effectiveBody = rawBody;
   const effectiveMediaType =
     body.data.mediaType ?? (body.data.mediaUrl ? 'image' : null);
 

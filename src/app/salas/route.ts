@@ -14,6 +14,12 @@ export const GET = withErrorHandling(async (request: Request) => {
   const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get('limit') ?? '30', 10) || 30));
   const circleId = url.searchParams.get('circleId');
   const q = (url.searchParams.get('q') ?? '').trim();
+  const category = (
+    url.searchParams.get('category') ??
+    url.searchParams.get('stageType') ??
+    url.searchParams.get('type') ??
+    ''
+  ).toLowerCase().trim();
 
   const myCircleMemberships = circleId
     ? await prisma.circleMember.findUnique({
@@ -28,10 +34,48 @@ export const GET = withErrorHandling(async (request: Request) => {
   });
   const myRoomIds = new Set(myRooms.map((r) => r.roomId));
 
+  const categoryFilter: Prisma.RoomWhereInput[] =
+    category === 'roleplay' || category === 'rol' || category === 'rp'
+      ? [
+          {
+            OR: [
+              { currentMode: { in: ['roleplay', 'rpg', 'stage'] } },
+              { tags: { hasSome: ['roleplay', 'Roleplay', 'rol', 'Rol', 'rp', 'RP', 'stage', 'Stage'] } },
+            ],
+          },
+        ]
+      : category === 'screening' || category === 'cinema' || category === 'cine'
+      ? [
+          {
+            OR: [
+              { currentMode: { in: ['screening', 'cinema'] } },
+              { cinemaVideoId: { not: null } },
+              { tags: { hasSome: ['screening', 'Screening', 'cine', 'Cine', 'video', 'Video', 'pelicula', 'Pelicula'] } },
+            ],
+          },
+        ]
+      : category === 'voice' || category === 'voz'
+      ? [
+          {
+            OR: [
+              { currentMode: 'voice' },
+              { tags: { hasSome: ['voice', 'Voice', 'voz', 'Voz', 'chill', 'Chill', 'charla', 'Charla'] } },
+            ],
+          },
+        ]
+      : category
+      ? [
+          {
+            tags: { hasSome: [category, category.toLowerCase(), category.toUpperCase()] },
+          },
+        ]
+      : [];
+
   const where: Prisma.RoomWhereInput = {
     status: RoomStatus.ACTIVE,
     ...(circleId ? { circleId } : {}),
     AND: [
+      ...categoryFilter,
       ...(q
         ? [{ OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { description: { contains: q, mode: 'insensitive' as const } }] }]
         : []),

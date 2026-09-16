@@ -290,9 +290,14 @@ export function serializeUser(user: PublicUser, opts: { isFollowing?: boolean; i
     followingCount: following,
     profileViews: visitsCount,
     visitorsCount: visitsCount,
+    // Catálogo de insignias: misma estructura que serializeMe. Sin sistema
+    // de otorgamiento en BD todavía, se reporta vacío en ambos endpoints.
+    badges: [] as string[],
+    unlockedBadges: [] as string[],
     extensions: {
       profileViews: visitsCount,
       visitorsCount: visitsCount,
+      badges: [] as string[],
     },
     hasPaymentPassword: opts.isMe ? false : undefined,
   };

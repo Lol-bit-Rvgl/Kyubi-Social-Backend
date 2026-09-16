@@ -77,9 +77,14 @@ export function serializeMe(user: MePayload) {
     followingCount: user._count?.following ?? 0,
     profileViews: visitsCount,
     visitorsCount: visitsCount,
+    // Catálogo de insignias: misma estructura que serializeUser. Sin sistema
+    // de otorgamiento en BD todavía, se reporta vacío en ambos endpoints.
+    badges: [] as string[],
+    unlockedBadges: [] as string[],
     extensions: {
       profileViews: visitsCount,
       visitorsCount: visitsCount,
+      badges: [] as string[],
     },
   };
 }

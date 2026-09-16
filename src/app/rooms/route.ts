@@ -96,12 +96,20 @@ export const POST = withErrorHandling(async (request: Request) => {
     },
   });
 
+  // Búsqueda exacta del DM 1:1: debe contener a ambos usuarios y a nadie
+  // más. El `every`+`in` anterior podía emparejar una conversación
+  // degenerada y `findFirst` sin orden era no determinista.
   const existing = await prisma.conversation.findFirst({
     where: {
       type: 'DIRECT',
-      members: { every: { userId: { in: [session.userId, targetId] } } },
+      AND: [
+        { members: { some: { userId: session.userId } } },
+        { members: { some: { userId: targetId } } },
+        { members: { none: { userId: { notIn: [session.userId, targetId] } } } },
+      ],
     },
     include: conversationInclude,
+    orderBy: { updatedAt: 'desc' },
   });
   if (existing) return ok(serializeConversation(existing, session.userId, 0));
 

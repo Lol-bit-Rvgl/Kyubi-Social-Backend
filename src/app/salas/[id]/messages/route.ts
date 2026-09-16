@@ -313,15 +313,18 @@ function checkRestRoomChatRateLimit(userId: string): { limited: boolean; retryAf
   const now = Date.now();
   const record = restRoomChatRateLimits.get(userId) || { timestamps: [], lastSent: 0 };
 
-  // 1. Mínimo 1.2 segundos entre mensajes consecutivos
-  if (now - record.lastSent < 1200) {
-    return { limited: true, retryAfterMs: 1200 - (now - record.lastSent) };
+  // 1. Mínimo 0.8 segundos entre mensajes consecutivos. Alineado con el
+  //    debounce de 800 ms del frontend: tiradas de dados / minijuegos
+  //    consecutivas quedan fluidas sin 429.
+  if (now - record.lastSent < 800) {
+    return { limited: true, retryAfterMs: 800 - (now - record.lastSent) };
   }
 
-  // 2. Máximo 4 mensajes por cada 5 segundos
+  // 2. Máximo 8 mensajes por cada 5 segundos (~1.6 msg/s sostenido; permite
+  //    ráfagas de 2-3 acciones por segundo por usuario sin bloquear).
   const windowMs = 5000;
   record.timestamps = record.timestamps.filter((ts) => now - ts < windowMs);
-  if (record.timestamps.length >= 4) {
+  if (record.timestamps.length >= 8) {
     const oldest = record.timestamps[0];
     return { limited: true, retryAfterMs: windowMs - (now - oldest) };
   }

@@ -653,6 +653,9 @@ async function checkUserSanction(prisma, userId) {
     };
   }
 
+  return null;
+}
+
 // Rate limiting en memoria para chat de salas
 const roomChatRateLimits = new Map();
 

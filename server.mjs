@@ -1401,25 +1401,60 @@ async function handleRoomVoiceModeration(socket, payload) {
   }
 }
 
-function handleRoomInvite(socket, payload) {
+async function handleRoomInvite(socket, payload) {
   const senderId = socket.userId || socket.data?.userId;
   const senderUsername = socket.data?.username || 'Usuario';
   if (!senderId || !payload || typeof payload !== 'object') return;
   const targetUserId = typeof payload.targetUserId === 'string' ? payload.targetUserId.trim() : '';
   const roomId = typeof payload.roomId === 'string' ? payload.roomId.trim() : '';
-  if (!targetUserId || !roomId) return;
+  if (!targetUserId || !roomId || targetUserId === senderId) return;
 
-  const inviteData = {
-    roomId,
-    roomName: typeof payload.roomName === 'string' ? payload.roomName.slice(0, 100) : 'Sala',
-    roomBanner: typeof payload.roomBanner === 'string' ? payload.roomBanner.slice(0, 2048) : null,
-    senderId,
-    senderUsername,
-    timestamp: new Date().toISOString(),
-  };
+  try {
+    const prisma = await matchPrisma();
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      select: { id: true, name: true, imageUrl: true, status: true, hostId: true },
+    });
+    if (!room || room.status !== 'ACTIVE') return;
 
-  io.to(`user:${targetUserId}`).emit('room:invited', inviteData);
-  console.log(`[room:invite] Invitación emitida de ${senderUsername} (${senderId}) a usuario ${targetUserId} para sala ${roomId}`);
+    // Verificar que sender sea host o participante
+    const isHost = room.hostId === senderId;
+    if (!isHost) {
+      const p = await prisma.roomParticipant.findUnique({
+        where: { roomId_userId: { roomId, userId: senderId } },
+      });
+      if (!p) return;
+    }
+
+    // Persistir RoomParticipant con role: 'INVITED' si no existe
+    const existing = await prisma.roomParticipant.findUnique({
+      where: { roomId_userId: { roomId, userId: targetUserId } },
+    });
+    if (!existing) {
+      await prisma.roomParticipant.create({
+        data: {
+          roomId,
+          userId: targetUserId,
+          role: 'INVITED',
+        },
+      });
+    }
+
+    const inviteData = {
+      roomId,
+      roomName: room.name,
+      roomBanner: room.imageUrl || (typeof payload.roomBanner === 'string' ? payload.roomBanner.slice(0, 2048) : null),
+      senderId,
+      senderUsername,
+      timestamp: new Date().toISOString(),
+    };
+
+    io.to(`user:${targetUserId}`).emit('room:invite_received', inviteData);
+    io.to(`user:${targetUserId}`).emit('room:invited', inviteData);
+    console.log(`[room:invite] Invitación persistida y emitida de ${senderUsername} (${senderId}) a usuario ${targetUserId} para sala ${roomId}`);
+  } catch (err) {
+    console.error('[room:invite] error:', err.message);
+  }
 }
 
 io.use((socket, nextFn) => {

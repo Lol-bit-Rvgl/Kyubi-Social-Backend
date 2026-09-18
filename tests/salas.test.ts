@@ -44,6 +44,9 @@ import { POST as votePoll } from '@/app/salas/[id]/messages/[messageId]/vote/rou
 import { PATCH as patchMode } from '@/app/salas/[id]/mode/route';
 import { POST as postMessage, GET as getMessages } from '@/app/salas/[id]/messages/route';
 import { PATCH as patchMessage, DELETE as deleteMessage } from '@/app/salas/[id]/messages/[messageId]/route';
+import { GET as getInvites } from '@/app/salas/invites/route';
+import { POST as acceptInvite } from '@/app/salas/[id]/invite/accept/route';
+import { POST as rejectInvite } from '@/app/salas/[id]/invite/reject/route';
 
 const m = prisma as unknown as PrismaMock;
 
@@ -1379,6 +1382,112 @@ describe('salas', () => {
       );
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('invitaciones a salas', () => {
+    it('GET /salas/invites devuelve salas con rol INVITED', async () => {
+      const token = await tokenFor('user-guest');
+      m.room.findMany.mockResolvedValue([
+        baseRoom({ id: 'room-priv-1', name: 'Sala Privada VIP', access: 'PRIVATE' }),
+      ]);
+
+      const res = await getInvites(jsonRequest('http://localhost/salas/invites', { token }));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.data).toHaveLength(1);
+      expect(data.data[0].id).toBe('room-priv-1');
+      expect(data.data[0].isParticipant).toBe(false);
+    });
+
+    it('POST /salas/[id]/invite/accept transiciona rol a PARTICIPANT y emite mensaje', async () => {
+      const token = await tokenFor('user-guest');
+      m.room.findUnique.mockResolvedValue(
+        baseRoom({
+          id: 'room-1',
+          name: 'Sala Anime',
+          status: 'ACTIVE',
+          capacity: null,
+          hostId: 'user-host',
+          participants: [{ user: { id: 'user-guest', username: 'guest', displayName: 'Guest User', avatarUrl: null }, role: 'PARTICIPANT', joinedAt: new Date() }],
+        })
+      );
+      m.roomParticipant.findUnique.mockResolvedValue({
+        id: 'part-1',
+        roomId: 'room-1',
+        userId: 'user-guest',
+        role: 'INVITED',
+      });
+      m.roomParticipant.update.mockResolvedValue({
+        id: 'part-1',
+        role: 'PARTICIPANT',
+      });
+      m.user.findUnique.mockResolvedValue({
+        id: 'user-guest',
+        username: 'guest',
+        displayName: 'Guest User',
+      });
+      m.roomMessage.create.mockResolvedValue({
+        id: 'msg-1',
+        roomId: 'room-1',
+        senderId: 'user-guest',
+        type: 'SYSTEM',
+        body: 'Guest User aceptó la invitación y se unió.',
+        createdAt: new Date(),
+        sender: { id: 'user-guest', username: 'guest', displayName: 'Guest User', avatarUrl: null },
+      });
+
+      const res = await acceptInvite(
+        jsonRequest('http://localhost/salas/room-1/invite/accept', { method: 'POST', token }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+
+      expect(res.status).toBe(200);
+      expect(m.roomParticipant.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'part-1' },
+          data: expect.objectContaining({ role: 'PARTICIPANT' }),
+        })
+      );
+    });
+
+    it('POST /salas/[id]/invite/reject elimina rol INVITED', async () => {
+      const token = await tokenFor('user-guest');
+      m.roomParticipant.findUnique.mockResolvedValue({
+        id: 'part-1',
+        roomId: 'room-1',
+        userId: 'user-guest',
+        role: 'INVITED',
+      });
+      m.roomParticipant.delete.mockResolvedValue({ id: 'part-1' });
+
+      const res = await rejectInvite(
+        jsonRequest('http://localhost/salas/room-1/invite/reject', { method: 'POST', token }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+      expect(m.roomParticipant.delete).toHaveBeenCalledWith({ where: { id: 'part-1' } });
+    });
+
+    it('PATCH /salas/[id] permite a moderador modificar la sala', async () => {
+      const token = await tokenFor('user-mod');
+      m.room.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'user-host' });
+      m.roomParticipant.findUnique.mockResolvedValue({ id: 'part-mod', role: 'MODERATOR' });
+      m.room.update.mockResolvedValue(baseRoom({ name: 'Sala Modificada por Mod' }));
+
+      const res = await patchSala(
+        jsonRequest('http://localhost/salas/room-1', {
+          method: 'PATCH',
+          token,
+          body: { name: 'Sala Modificada por Mod' },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+
+      expect(res.status).toBe(200);
     });
   });
 });

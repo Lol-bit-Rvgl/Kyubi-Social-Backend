@@ -32,7 +32,7 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
   if (!room) return fail('Sala no encontrada', 404);
 
   const participant = await participantFor(id, session.userId);
-  if (room.access === 'PRIVATE' && !participant) {
+  if (room.access === 'PRIVATE' && (!participant || participant.role === 'INVITED')) {
     if (room.circleId) {
       const membership = await prisma.circleMember.findUnique({
         where: { circleId_userId: { circleId: room.circleId, userId: session.userId } },
@@ -44,7 +44,7 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
     }
   }
 
-  return ok(serializeRoom(room, { myUserId: session.userId, isParticipant: participant != null, fullParticipants: room.participants }));
+  return ok(serializeRoom(room, { myUserId: session.userId, isParticipant: participant != null && participant.role !== 'INVITED', fullParticipants: room.participants }));
 });
 
 const patchSchema = z.object({
@@ -89,7 +89,11 @@ export const PATCH = withErrorHandling(async (request: Request, { params }: { pa
 
   const room = await prisma.room.findUnique({ where: { id }, select: { id: true, hostId: true } });
   if (!room) return fail('Sala no encontrada', 404);
-  if (room.hostId !== session.userId) return fail('Solo el anfitrión puede modificar la sala', 403);
+  const participant = await participantFor(id, session.userId);
+  const MANAGEABLE_ROLES = new Set(['HOST', 'CO_HOST', 'ADMIN', 'OWNER', 'CO_ADMIN', 'COADMIN', 'MODERATOR']);
+  const isHost = room.hostId === session.userId;
+  const isModerator = Boolean(participant && MANAGEABLE_ROLES.has(participant.role.toUpperCase()));
+  if (!isHost && !isModerator) return fail('Solo el anfitrión o moderadores pueden modificar la sala', 403);
 
   const body = patchSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return fail('Sala inválida', 400);

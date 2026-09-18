@@ -21,6 +21,33 @@ export const GET = withErrorHandling(async (request: Request) => {
     ''
   ).toLowerCase().trim();
 
+  const statusParam = url.searchParams.get('status')?.toUpperCase();
+  if (statusParam === 'INVITED') {
+    const invitedRooms = await prisma.room.findMany({
+      where: {
+        status: RoomStatus.ACTIVE,
+        participants: {
+          some: {
+            userId: session.userId,
+            role: 'INVITED',
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      include: roomInclude,
+    });
+    return ok({
+      data: (invitedRooms ?? []).map((room) =>
+        serializeRoom(room, {
+          myUserId: session.userId,
+          isParticipant: false,
+        })
+      ),
+      total: invitedRooms.length,
+    });
+  }
+
   const myCircleMemberships = circleId
     ? await prisma.circleMember.findUnique({
         where: { circleId_userId: { circleId, userId: session.userId } },
@@ -29,7 +56,7 @@ export const GET = withErrorHandling(async (request: Request) => {
     : null;
 
   const myRooms = await prisma.roomParticipant.findMany({
-    where: { userId: session.userId },
+    where: { userId: session.userId, role: { not: 'INVITED' } },
     select: { roomId: true },
   });
   const myRoomIds = new Set((myRooms ?? []).map((r) => r.roomId));
@@ -89,7 +116,7 @@ export const GET = withErrorHandling(async (request: Request) => {
         : {
             OR: [
               { access: 'PUBLIC' },
-              { participants: { some: { userId: session.userId } } },
+              { participants: { some: { userId: session.userId, role: { not: 'INVITED' } } } },
             ],
           },
     ],

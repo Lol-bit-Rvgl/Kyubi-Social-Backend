@@ -31,10 +31,10 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
 
   const existing = await prisma.roomParticipant.findUnique({
     where: { roomId_userId: { roomId: id, userId: session.userId } },
-    select: { id: true },
+    select: { id: true, role: true },
   });
   const isHost = room.hostId === session.userId;
-  if (isHost || existing) {
+  if (isHost || (existing && existing.role !== 'INVITED')) {
     const current = await roomDetail(id);
     if (!current) return fail('Sala no encontrada', 404);
     return ok({
@@ -43,7 +43,8 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
     });
   }
 
-  if (room.access === 'PRIVATE') {
+  const isInvited = existing?.role === 'INVITED';
+  if (room.access === 'PRIVATE' && !isInvited) {
     if (room.circleId) {
       const membership = await prisma.circleMember.findUnique({
         where: { circleId_userId: { circleId: room.circleId, userId: session.userId } },
@@ -56,13 +57,22 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   }
 
   if (room.capacity != null) {
-    const current = await prisma.roomParticipant.count({ where: { roomId: id } });
+    const current = await prisma.roomParticipant.count({
+      where: { roomId: id, role: { not: 'INVITED' } },
+    });
     if (current >= room.capacity) return fail('La sala está llena', 400);
   }
 
-  await prisma.roomParticipant.create({
-    data: { roomId: id, userId: session.userId, role: 'PARTICIPANT' },
-  });
+  if (existing) {
+    await prisma.roomParticipant.update({
+      where: { id: existing.id },
+      data: { role: 'PARTICIPANT', joinedAt: new Date() },
+    });
+  } else {
+    await prisma.roomParticipant.create({
+      data: { roomId: id, userId: session.userId, role: 'PARTICIPANT' },
+    });
+  }
 
   try {
     const actor = await prisma.user.findUnique({

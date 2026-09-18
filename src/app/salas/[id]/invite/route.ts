@@ -24,7 +24,7 @@ export const POST = withErrorHandling(
 
     const room = await prisma.room.findUnique({
       where: { id },
-      select: { id: true, name: true, status: true, hostId: true },
+      select: { id: true, name: true, imageUrl: true, status: true, hostId: true },
     });
     if (!room) return fail('Sala no encontrada', 404);
     if (room.status !== 'ACTIVE') return fail('La sala ha terminado', 400);
@@ -76,7 +76,7 @@ export const POST = withErrorHandling(
       if (alreadyIn.has(user.id)) continue;
       try {
         await prisma.roomParticipant.create({
-          data: { roomId: id, userId: user.id, role: 'PARTICIPANT' },
+          data: { roomId: id, userId: user.id, role: 'INVITED' },
         });
       } catch {
         // Ya era participante (carrera con join): lo tratamos como invitado.
@@ -84,11 +84,17 @@ export const POST = withErrorHandling(
       invited.push(user.id);
       invitedNames.push(user.displayName || user.username);
 
-      emitToUser(user.id, 'room:invited', {
+      const inviteData = {
         roomId: id,
         roomName: room.name,
+        roomBanner: room.imageUrl ?? null,
         invitedBy: inviterName,
-      });
+        senderId: session.userId,
+        senderUsername: inviterName,
+        timestamp: new Date().toISOString(),
+      };
+      emitToUser(user.id, 'room:invite_received', inviteData);
+      emitToUser(user.id, 'room:invited', inviteData);
     }
 
     if (invited.length > 0) {

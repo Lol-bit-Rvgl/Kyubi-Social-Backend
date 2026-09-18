@@ -13,9 +13,9 @@ FROM base AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+COPY prisma ./prisma/
 
-COPY prisma ./prisma
+RUN npm ci
 RUN npx prisma generate
 
 COPY . .

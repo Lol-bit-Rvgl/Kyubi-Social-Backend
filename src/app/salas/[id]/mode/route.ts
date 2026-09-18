@@ -5,6 +5,15 @@ import { prisma } from '@/lib/prisma';
 import { serializeRoom } from '@/lib/social';
 import { emitToSala } from '@/lib/socketio';
 
+/** Cooldown mínimo entre cambios de modo (ms). Evita ráfagas de peticiones. */
+const MODE_COOLDOWN_MS = 3_000;
+
+/**
+ * Mapa en memoria: roomId → timestamp (ms) del último cambio de modo exitoso.
+ * Se limpia automáticamente al inicio de cada petición si el cooldown ya expiró.
+ */
+const lastModeChangeMap = new Map<string, number>();
+
 const MANAGEABLE_ROLES = new Set([
   'HOST',
   'CO_HOST',
@@ -67,6 +76,18 @@ async function handleModeChange(request: Request, roomId: string) {
 
   const canManage = await canManageRoom(roomId, session.userId);
   if (!canManage) return fail('No tienes permiso para cambiar el modo de la sala', 403);
+
+  // Rate limiting por sala: rechazar si el último cambio de modo fue hace menos de MODE_COOLDOWN_MS.
+  const now = Date.now();
+  const lastChange = lastModeChangeMap.get(roomId);
+  if (lastChange !== undefined && now - lastChange < MODE_COOLDOWN_MS) {
+    const remainingMs = MODE_COOLDOWN_MS - (now - lastChange);
+    const remainingSec = Math.ceil(remainingMs / 1_000);
+    return fail(
+      `Cambio de modo en cooldown. Espera ${remainingSec} s antes de volver a cambiar.`,
+      429,
+    );
+  }
 
   const body = modeSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return fail('Datos de modo inválidos', 400);
@@ -158,6 +179,9 @@ async function handleModeChange(request: Request, roomId: string) {
 
   const { updatedRoom, previousMode, createdMessages } = txResult;
 
+  // Registrar timestamp del cambio exitoso para el rate limiting.
+  lastModeChangeMap.set(roomId, Date.now());
+
   // 1. Si se cerró la sala de cine, emitir cinema:sync con CLEAR
   if (previousMode === 'screening' && targetMode !== 'screening') {
     emitToSala(roomId, 'cinema:sync', {
@@ -236,3 +260,15 @@ export const POST = withErrorHandling(
     return handleModeChange(request, id);
   }
 );
+
+/**
+ * Solo para tests: limpia el mapa de cooldown de modo para una sala específica.
+ * No llamar en producción.
+ */
+export function _resetModeChangeCooldownForTesting(roomId?: string): void {
+  if (roomId) {
+    lastModeChangeMap.delete(roomId);
+  } else {
+    lastModeChangeMap.clear();
+  }
+}

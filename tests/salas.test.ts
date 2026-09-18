@@ -788,6 +788,50 @@ describe('salas', () => {
     );
   });
 
+  it('patchMode rechaza con 429 si se intenta cambiar de modo dentro del cooldown de 3 s', async () => {
+    const token = await tokenFor();
+    const existingRoom = baseRoom({ currentMode: 'standard' });
+    const updatedRoom = { ...existingRoom, currentMode: 'roleplay' };
+
+    m.room.findUnique.mockResolvedValue(existingRoom);
+    m.roomParticipant.findUnique.mockResolvedValue({ id: 'part-1', role: 'HOST' });
+    m.room.update.mockResolvedValue(updatedRoom);
+
+    // Asegurarse de que el cooldown esté limpio antes de este test.
+    const { _resetModeChangeCooldownForTesting } = await import('@/app/salas/[id]/mode/route');
+    _resetModeChangeCooldownForTesting('room-1');
+
+    // Primera petición: debe ser exitosa (200).
+    const res1 = await patchMode(
+      jsonRequest('http://localhost/salas/room-1/mode', {
+        method: 'PATCH',
+        token,
+        body: { mode: 'roleplay' },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+    expect(res1.status).toBe(200);
+
+    // Restaurar mocks para la segunda llamada.
+    m.room.findUnique.mockResolvedValue({ ...existingRoom, currentMode: 'roleplay' });
+
+    // Segunda petición inmediata: debe ser rechazada con 429 (cooldown activo).
+    const res2 = await patchMode(
+      jsonRequest('http://localhost/salas/room-1/mode', {
+        method: 'PATCH',
+        token,
+        body: { mode: 'voice' },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+    expect(res2.status).toBe(429);
+    const body2 = await res2.json();
+    expect(body2.error).toMatch(/cooldown/i);
+
+    // Limpiar para no afectar otros tests.
+    _resetModeChangeCooldownForTesting('room-1');
+  });
+
   it('updateStageRole rechaza nombres de más de 20 chars o descripciones mayores a 300', async () => {
     const token = await tokenFor();
     m.room.findUnique.mockResolvedValue(baseRoom());

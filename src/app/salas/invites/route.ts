@@ -23,7 +23,10 @@ export const GET = withErrorHandling(async (request: Request) => {
     },
     orderBy: { createdAt: 'desc' },
     take: limit,
-    include: roomInclude,
+    include: {
+      ...roomInclude,
+      participants: { include: { user: true }, orderBy: { joinedAt: 'asc' }, take: 50 },
+    },
   });
 
   return ok({
@@ -31,6 +34,7 @@ export const GET = withErrorHandling(async (request: Request) => {
       serializeRoom(room, {
         myUserId: session.userId,
         isParticipant: false,
+        fullParticipants: room.participants,
       })
     ),
     total: invitedRooms.length,

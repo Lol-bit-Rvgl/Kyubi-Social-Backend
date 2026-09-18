@@ -7,7 +7,7 @@ import { sendPushNotification } from '@/lib/fcm';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { emitToConversation, emitToUser } from '@/lib/socketio';
-import { optionalSafeHttpUrl } from '@/lib/validation';
+import { optionalSafeHttpUrl, optionalSafeMediaUrl } from '@/lib/validation';
 
 export const GET = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireSession(request);
@@ -66,7 +66,7 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
 const sendSchema = z.object({
   body: z.string().trim().max(4000).optional().default(''),
   content: z.string().trim().max(4000).optional(),
-  mediaUrl: optionalSafeHttpUrl,
+  mediaUrl: optionalSafeMediaUrl,
   mediaType: z.string().nullable().optional(),
   replyToId: z.string().nullable().optional(),
 
@@ -115,7 +115,13 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
     if (!reply) return fail('Mensaje de referencia no encontrado', 404);
   }
 
-  const effectiveBody = rawBody;
+  const effectiveBody =
+    rawBody ||
+    (body.data.mediaType === 'sticker'
+      ? (typeof (body.data.extensions as any)?.name === 'string' && (body.data.extensions as any).name
+        ? `:${(body.data.extensions as any).name}:`
+        : '🎨 Sticker')
+      : '');
   const effectiveMediaType =
     body.data.mediaType ?? (body.data.mediaUrl ? 'image' : null);
 

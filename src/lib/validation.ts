@@ -28,3 +28,33 @@ export const safeHttpUrl = z
 
 /** Versión nullable/opcional lista para usar en schemas de payloads. */
 export const optionalSafeHttpUrl = safeHttpUrl.nullable().optional();
+
+/**
+ * URL externa o ruta de recurso seguro para campos multimedia (imágenes, stickers, audio).
+ * - Permite URLs HTTP y HTTPS válidas.
+ * - Permite rutas locales de assets (ej: `assets/stickers/...`).
+ * - Rechaza esquemas peligrosos como `javascript:`, `data:`, `vbscript:`, `file:`.
+ */
+export const safeMediaUrl = z
+  .string()
+  .trim()
+  .max(2048)
+  .refine(
+    (val) => {
+      const lower = val.toLowerCase();
+      if (
+        lower.startsWith('javascript:') ||
+        lower.startsWith('data:') ||
+        lower.startsWith('vbscript:') ||
+        lower.startsWith('file:')
+      ) {
+        return false;
+      }
+      return true;
+    },
+    { message: 'URL o ruta de medio no válida' },
+  );
+
+/** Versión nullable/opcional lista para usar en schemas de payloads con multimedia. */
+export const optionalSafeMediaUrl = safeMediaUrl.nullable().optional();
+

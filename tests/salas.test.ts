@@ -230,8 +230,8 @@ describe('salas', () => {
   });
 
   it('GET detalle privado sin acceso da 403; con membresía de círculo da 200', async () => {
-    const token = await tokenFor();
-    m.room.findUnique.mockResolvedValue(baseRoom({ access: 'PRIVATE', circleId: 'circle-1' }));
+    const token = await tokenFor('user-guest');
+    m.room.findUnique.mockResolvedValue(baseRoom({ hostId: 'user-host', access: 'PRIVATE', circleId: 'circle-1' }));
     m.roomParticipant.findUnique.mockResolvedValue(null);
     m.circleMember.findUnique.mockResolvedValue(null);
 
@@ -241,6 +241,17 @@ describe('salas', () => {
     m.circleMember.findUnique.mockResolvedValue({ id: 'cm-1' });
     const allowed = await getSala(jsonRequest('http://localhost/salas/room-1', { token }), { params: Promise.resolve({ id: 'room-1' }) });
     expect(allowed.status).toBe(200);
+  });
+
+  it('GET detalle privado para el anfitrión (host) siempre da 200 aunque no tenga registro de participante', async () => {
+    const token = await tokenFor('user-1');
+    m.room.findUnique.mockResolvedValue(baseRoom({ hostId: 'user-1', access: 'PRIVATE' }));
+    m.roomParticipant.findUnique.mockResolvedValue(null);
+
+    const allowed = await getSala(jsonRequest('http://localhost/salas/room-1', { token }), { params: Promise.resolve({ id: 'room-1' }) });
+    expect(allowed.status).toBe(200);
+    const body = await allowed.json();
+    expect(body.isParticipant).toBe(true);
   });
 
   it('PATCH 403 si no eres el host', async () => {

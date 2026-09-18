@@ -7,7 +7,7 @@ import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { emitToSala } from '@/lib/socketio';
 import { serializeAuthor } from '@/lib/serialize';
-import { optionalSafeHttpUrl, safeHttpUrl } from '@/lib/validation';
+import { optionalSafeHttpUrl, optionalSafeMediaUrl, safeHttpUrl } from '@/lib/validation';
 
 export const GET = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const session = await requireSession(request);
@@ -16,15 +16,16 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
 
   const room = await prisma.room.findUnique({
     where: { id },
-    select: { id: true, status: true, access: true, circleId: true },
+    select: { id: true, hostId: true, status: true, access: true, circleId: true },
   });
   if (!room) return fail('Sala no encontrada', 404);
 
+  const isHost = room.hostId === session.userId;
   const participant = await prisma.roomParticipant.findUnique({
     where: { roomId_userId: { roomId: id, userId: session.userId } },
     select: { id: true },
   });
-  if (room.access === 'PRIVATE' && !participant) {
+  if (!isHost && room.access === 'PRIVATE' && !participant) {
     if (room.circleId) {
       const membership = await prisma.circleMember.findUnique({
         where: { circleId_userId: { circleId: room.circleId, userId: session.userId } },
@@ -266,7 +267,7 @@ function serializeRoomMessage(
 const sendSchema = z.object({
   body: z.string().trim().max(4000).optional().default(''),
   content: z.string().trim().max(4000).optional(),
-  mediaUrl: optionalSafeHttpUrl,
+  mediaUrl: optionalSafeMediaUrl,
   attachments: z.array(safeHttpUrl).max(5, 'Máximo 5 adjuntos por mensaje').optional(),
 
   // Tipo de contenido: texto por defecto; voz, imagen, encuesta, dados, rps o sistema.
@@ -352,16 +353,17 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
 
   const room = await prisma.room.findUnique({
     where: { id },
-    select: { id: true, status: true, access: true, circleId: true },
+    select: { id: true, hostId: true, status: true, access: true, circleId: true },
   });
   if (!room) return fail('Sala no encontrada', 404);
   if (room.status !== 'ACTIVE') return fail('La sala ha terminado', 400);
 
+  const isHost = room.hostId === session.userId;
   const participant = await prisma.roomParticipant.findUnique({
     where: { roomId_userId: { roomId: id, userId: session.userId } },
     select: { id: true },
   });
-  if (!participant) return fail('Debes entrar a la sala para enviar mensajes', 403);
+  if (!participant && !isHost) return fail('Debes entrar a la sala para enviar mensajes', 403);
 
   const body = sendSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return fail('Mensaje inválido', 400);

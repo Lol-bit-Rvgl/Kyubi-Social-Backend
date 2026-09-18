@@ -31,8 +31,9 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
   const room = await getRoomOrFail(id);
   if (!room) return fail('Sala no encontrada', 404);
 
+  const isHost = session.userId === room.hostId;
   const participant = await participantFor(id, session.userId);
-  if (room.access === 'PRIVATE' && (!participant || participant.role === 'INVITED')) {
+  if (!isHost && room.access === 'PRIVATE' && (!participant || participant.role === 'INVITED')) {
     if (room.circleId) {
       const membership = await prisma.circleMember.findUnique({
         where: { circleId_userId: { circleId: room.circleId, userId: session.userId } },
@@ -44,7 +45,7 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
     }
   }
 
-  return ok(serializeRoom(room, { myUserId: session.userId, isParticipant: participant != null && participant.role !== 'INVITED', fullParticipants: room.participants }));
+  return ok(serializeRoom(room, { myUserId: session.userId, isParticipant: isHost || (participant != null && participant.role !== 'INVITED'), fullParticipants: room.participants }));
 });
 
 const patchSchema = z.object({

@@ -44,6 +44,11 @@ const LOCAL_ORIGINS = [
   'http://localhost:8080',
 ];
 
+const PRODUCTION_ORIGINS = [
+  'https://kyubisocial.vercel.app',
+  'https://kyubi-social.vercel.app',
+];
+
 const configuredOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
@@ -51,12 +56,14 @@ const configuredOrigins = (process.env.CORS_ORIGINS || '')
 
 const isDevEnv = process.env.NODE_ENV !== 'production';
 const allowedOrigins = Array.from(
-  new Set([...(isDevEnv ? LOCAL_ORIGINS : []), ...configuredOrigins]),
+  new Set([...PRODUCTION_ORIGINS, ...(isDevEnv ? LOCAL_ORIGINS : []), ...configuredOrigins]),
 );
 
 function originIsAllowed(origin) {
   if (!origin) return true; // peticiones no-CORS (mismo servidor, curl, apps nativas)
-  return allowedOrigins.includes(origin);
+  if (allowedOrigins.includes(origin)) return true;
+  if (/^https:\/\/kyubi.*\.vercel\.app$/.test(origin)) return true;
+  return false;
 }
 
 const app = next({ dev, hostname, port });
@@ -117,7 +124,7 @@ const server = createServer(async (req, res) => {
   // nivel de servidor para API HTTP y el handshake de Socket.IO).
   // ───────────────────────────────────────────────────────────────────────────
   const origin = req.headers.origin;
-  const allowed = Boolean(origin) && allowedOrigins.includes(origin);
+  const allowed = Boolean(origin) && originIsAllowed(origin);
 
   if (allowed) {
     res.setHeader('Access-Control-Allow-Origin', origin);

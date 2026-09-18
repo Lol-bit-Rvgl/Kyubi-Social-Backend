@@ -8,7 +8,6 @@ import { roomInclude, serializeRoom } from '@/lib/social';
 
 export const GET = withErrorHandling(async (request: Request) => {
   const session = await requireSession(request);
-  if (!session) return fail('No autorizado', 401);
 
   const url = new URL(request.url);
   const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get('limit') ?? '30', 10) || 30));
@@ -21,17 +20,19 @@ export const GET = withErrorHandling(async (request: Request) => {
     ''
   ).toLowerCase().trim();
 
-  const myCircleMemberships = circleId
+  const myCircleMemberships = (circleId && session)
     ? await prisma.circleMember.findUnique({
         where: { circleId_userId: { circleId, userId: session.userId } },
         select: { id: true },
       })
     : null;
 
-  const myRooms = await prisma.roomParticipant.findMany({
-    where: { userId: session.userId },
-    select: { roomId: true },
-  });
+  const myRooms = session
+    ? await prisma.roomParticipant.findMany({
+        where: { userId: session.userId },
+        select: { roomId: true },
+      })
+    : [];
   const myRoomIds = new Set(myRooms.map((r) => r.roomId));
 
   const categoryFilter: Prisma.RoomWhereInput[] =
@@ -83,15 +84,15 @@ export const GET = withErrorHandling(async (request: Request) => {
       // propio usuario (participante/host). Las salas privadas de terceros NO
       // aparecen en "Rooms"/"Recomendadas".
       circleId
-        ? myCircleMemberships
-          ? {}
-          : { access: 'PUBLIC' }
-        : {
+        ? (myCircleMemberships ? {} : { access: 'PUBLIC' })
+        : session
+        ? {
             OR: [
               { access: 'PUBLIC' },
               { participants: { some: { userId: session.userId } } },
             ],
-          },
+          }
+        : { access: 'PUBLIC' },
     ],
   };
 
@@ -104,7 +105,10 @@ export const GET = withErrorHandling(async (request: Request) => {
 
   return ok({
     data: rooms.map((room) =>
-      serializeRoom(room, { myUserId: session.userId, isParticipant: myRoomIds.has(room.id) })
+      serializeRoom(room, {
+        myUserId: session?.userId,
+        isParticipant: session ? myRoomIds.has(room.id) : false,
+      })
     ),
     total: await prisma.room.count({ where }),
   });

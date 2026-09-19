@@ -792,6 +792,104 @@ describe('salas', () => {
     );
   });
 
+  it('patchMode al salir de roleplay a standard vacía atómicamente stageRoles y purga activeCharacter en participantes', async () => {
+    const token = await tokenFor();
+    const occupiedRoles = [
+      {
+        id: 'role-1',
+        name: 'Guerrero',
+        isTaken: true,
+        isOccupied: true,
+        takenByUserId: 'user-1',
+        takenByUsername: 'user_one',
+        occupiedBy: 'user-1',
+        occupiedByName: 'user_one',
+      },
+      {
+        id: 'role-2',
+        name: 'Mago',
+        isTaken: true,
+        isOccupied: true,
+        takenByUserId: 'user-2',
+        takenByUsername: 'user_two',
+        occupiedBy: 'user-2',
+        occupiedByName: 'user_two',
+      },
+    ];
+
+    const existingRoom = baseRoom({
+      currentMode: 'roleplay',
+      stageRoles: occupiedRoles,
+      participants: [
+        {
+          id: 'part-1',
+          user: author,
+          role: 'HOST',
+          joinedAt: new Date(),
+          metadata: { activeCharacter: occupiedRoles[0] },
+        },
+      ],
+    });
+
+    const updatedRoom = {
+      ...existingRoom,
+      currentMode: 'standard',
+      stageRoles: occupiedRoles.map((r) => ({
+        ...r,
+        isTaken: false,
+        isOccupied: false,
+        takenByUserId: null,
+        takenByUsername: null,
+        occupiedBy: null,
+        occupiedByName: null,
+      })),
+    };
+
+    m.room.findUnique.mockResolvedValue(existingRoom);
+    m.roomParticipant.findUnique.mockResolvedValue({ id: 'part-1', role: 'HOST' });
+    m.room.update.mockResolvedValue(updatedRoom);
+
+    const { _resetModeChangeCooldownForTesting } = await import('@/app/salas/[id]/mode/route');
+    _resetModeChangeCooldownForTesting('room-1');
+
+    const res = await patchMode(
+      jsonRequest('http://localhost/salas/room-1/mode', {
+        method: 'PATCH',
+        token,
+        body: { mode: 'standard' },
+      }),
+      { params: Promise.resolve({ id: 'room-1' }) }
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.currentMode).toBe('standard');
+
+    // Verificar que room.update guardó los slots desocupados
+    expect(m.room.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'room-1' },
+        data: expect.objectContaining({
+          currentMode: 'standard',
+          stageRoles: expect.arrayContaining([
+            expect.objectContaining({ id: 'role-1', isTaken: false, takenByUserId: null }),
+            expect.objectContaining({ id: 'role-2', isTaken: false, takenByUserId: null }),
+          ]),
+        }),
+      })
+    );
+
+    // Verificar que se limpió activeCharacter en el participante
+    expect(m.roomParticipant.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'part-1' },
+        data: { metadata: {} },
+      })
+    );
+
+    _resetModeChangeCooldownForTesting('room-1');
+  });
+
   it('patchMode rechaza con 429 si se intenta cambiar de modo dentro del cooldown de 3 s', async () => {
     const token = await tokenFor();
     const existingRoom = baseRoom({ currentMode: 'standard' });

@@ -161,6 +161,38 @@ async function handleModeChange(request: Request, roomId: string) {
       roomUpdateData.cinemaUpdatedAt = new Date();
     }
 
+    // Limpieza atómica de Roleplay Stage al salir de roleplay
+    if (previousMode === 'roleplay' && targetMode !== 'roleplay') {
+      const currentStageRoles = Array.isArray(existing.stageRoles)
+        ? (existing.stageRoles as any[]).map((r) => ({
+            ...r,
+            isTaken: false,
+            isOccupied: false,
+            takenByUserId: null,
+            takenByUsername: null,
+            occupiedBy: null,
+            occupiedByName: null,
+          }))
+        : [];
+      roomUpdateData.stageRoles = currentStageRoles;
+
+      const participantsWithRole = Array.isArray(existing.participants)
+        ? existing.participants.filter(
+            (p) => p && (p.metadata as any)?.activeCharacter
+          )
+        : [];
+      for (const p of participantsWithRole) {
+        if (p.id) {
+          const meta = (p.metadata as Record<string, any>) || {};
+          const { activeCharacter, ...rest } = meta;
+          await tx.roomParticipant.update({
+            where: { id: p.id },
+            data: { metadata: rest },
+          });
+        }
+      }
+    }
+
     const updatedRoom = await tx.room.update({
       where: { id: roomId },
       data: roomUpdateData,
@@ -191,6 +223,22 @@ async function handleModeChange(request: Request, roomId: string) {
       state: 'STOPPED',
       currentTime: 0,
       updatedAt: new Date().toISOString(),
+    });
+  }
+
+  // 1.1 Si se desactivó el modo roleplay, emitir evento de vaciado total y stage inactivo
+  if (previousMode === 'roleplay' && targetMode !== 'roleplay') {
+    emitToSala(roomId, 'room:stage_role', {
+      action: 'leave_all',
+      stageRoles: updatedRoom.stageRoles,
+      isActive: false,
+      timestamp: new Date().toISOString(),
+    });
+    emitToSala(roomId, 'roleplay:slot_updated', {
+      action: 'leave_all',
+      stageRoles: updatedRoom.stageRoles,
+      isActive: false,
+      timestamp: new Date().toISOString(),
     });
   }
 

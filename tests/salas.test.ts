@@ -14,6 +14,7 @@ const mockPrisma = vi.hoisted(() => {
       reaction: { upsert: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn() },
       circle: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), count: vi.fn() },
       circleMember: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+      character: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
       room: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), count: vi.fn() },
       roomParticipant: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), upsert: vi.fn(), delete: vi.fn(), deleteMany: vi.fn(), count: vi.fn() },
       roomMessage: { create: vi.fn().mockResolvedValue({ id: 'msg-1', roomId: 'room-1', senderId: 'user-1', sender: { id: 'user-1', username: 'user_one', displayName: 'User One', avatarUrl: null }, type: 'SYSTEM', body: 'User One se ha unido.', extensions: {}, createdAt: new Date() }), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn(), delete: vi.fn() },
@@ -40,6 +41,7 @@ import { GET as getSala, PATCH as patchSala, DELETE as deleteSala } from '@/app/
 import { POST as joinSala } from '@/app/salas/[id]/join/route';
 import { POST as leaveSala } from '@/app/salas/[id]/leave/route';
 import { POST as updateStageRole } from '@/app/salas/[id]/stage/role/route';
+import { POST as occupyRole } from '@/app/salas/[id]/roles/occupy/route';
 import { POST as votePoll } from '@/app/salas/[id]/messages/[messageId]/vote/route';
 import { PATCH as patchMode } from '@/app/salas/[id]/mode/route';
 import { POST as postMessage, GET as getMessages } from '@/app/salas/[id]/messages/route';
@@ -1543,6 +1545,100 @@ describe('salas', () => {
       );
 
       expect(res.status).toBe(200);
+    });
+
+    it('POST /salas/[id]/roles/occupy asigna la ficha de rol al slot indicado', async () => {
+      const token = await tokenFor('user-1');
+      const existingRoom = baseRoom({
+        stageRoles: [
+          { id: 'slot-1', name: 'Guerrero', isTaken: false, isOccupied: false },
+          { id: 'slot-2', name: 'Mago', isTaken: false, isOccupied: false },
+        ],
+      });
+
+      m.room.findUnique.mockResolvedValue(existingRoom);
+      m.character.findFirst.mockResolvedValue({
+        id: 'char-1',
+        name: 'Kaelen',
+        avatarUrl: 'https://cdn.kyubi.app/kaelen.png',
+        tagline: 'Caballero Errante',
+        description: 'Espadachín veterano',
+        themeColor: '#FFD600',
+        userId: 'user-1',
+      });
+      m.user.findUnique.mockResolvedValue({ id: 'user-1', username: 'user_one', displayName: 'User One' });
+      m.room.update.mockResolvedValue(existingRoom);
+      m.roomParticipant.updateMany.mockResolvedValue({ count: 1 });
+
+      const res = await occupyRole(
+        jsonRequest('http://localhost/salas/room-1/roles/occupy', {
+          method: 'POST',
+          token,
+          body: { slotIndex: 1, roleSheetId: 'char-1' },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+      expect(data.slotIndex).toBe(1);
+      expect(data.role).toMatchObject({
+        id: 'char-1',
+        name: 'Kaelen',
+        isTaken: true,
+        takenByUserId: 'user-1',
+      });
+      expect(m.room.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'room-1' },
+          data: expect.objectContaining({
+            stageRoles: expect.arrayContaining([
+              expect.objectContaining({ id: 'char-1', name: 'Kaelen', isTaken: true }),
+            ]),
+          }),
+        })
+      );
+    });
+
+    it('POST /salas/[id]/roles/occupy libera slot previo y busca primer slot libre sin slotIndex', async () => {
+      const token = await tokenFor('user-1');
+      const existingRoom = baseRoom({
+        stageRoles: [
+          { id: 'slot-prev', name: 'Anterior', isTaken: true, takenByUserId: 'user-1' },
+          { id: 'slot-2', name: 'Mago', isTaken: false, isOccupied: false },
+        ],
+      });
+
+      m.room.findUnique.mockResolvedValue(existingRoom);
+      m.character.findFirst.mockResolvedValue({
+        id: 'char-2',
+        name: 'Lyra',
+        avatarUrl: null,
+        tagline: 'Hechicera',
+        description: '',
+        themeColor: '#00E5FF',
+        userId: 'user-1',
+      });
+      m.user.findUnique.mockResolvedValue({ id: 'user-1', username: 'user_one', displayName: 'User One' });
+      m.room.update.mockResolvedValue(existingRoom);
+      m.roomParticipant.updateMany.mockResolvedValue({ count: 1 });
+
+      const res = await occupyRole(
+        jsonRequest('http://localhost/salas/room-1/roles/occupy', {
+          method: 'POST',
+          token,
+          body: { roleSheetId: 'char-2' },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+      // El slot previo fue liberado, por lo que el primer slot vacante ahora es el índice 0
+      expect(data.slotIndex).toBe(0);
+      expect(data.role.name).toBe('Lyra');
     });
   });
 });

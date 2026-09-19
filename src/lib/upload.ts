@@ -201,17 +201,29 @@ type OptimizedImage = { body: Buffer; contentType: string; ext: string };
 async function optimizeImage(
   bytes: Buffer,
   mime: string,
+  kind = 'misc',
 ): Promise<OptimizedImage> {
   if (mime === 'image/gif') {
     return { body: bytes, contentType: mime, ext: '.gif' };
   }
 
-  const maxWidth = Number(process.env.IMAGE_MAX_WIDTH || 1600);
+  const isAvatar = kind.toLowerCase() === 'avatar';
+  const maxWidth = isAvatar ? 512 : Number(process.env.IMAGE_MAX_WIDTH || 1600);
   const quality = Number(process.env.IMAGE_QUALITY || 82);
 
-  const body = await sharp(bytes)
-    .rotate() // respeta orientación EXIF
-    .resize({ width: maxWidth, withoutEnlargement: true })
+  const transformer = sharp(bytes).rotate();
+  if (isAvatar) {
+    transformer.resize({
+      width: 512,
+      height: 512,
+      fit: 'cover',
+      withoutEnlargement: true,
+    });
+  } else {
+    transformer.resize({ width: maxWidth, withoutEnlargement: true });
+  }
+
+  const body = await transformer
     .webp({ quality, effort: 4 })
     .toBuffer();
 
@@ -243,7 +255,7 @@ export async function saveUpload(file: File, kind = 'misc'): Promise<string> {
   let ext = extFor(file);
 
   if (IMAGE_MIMES.has(mime)) {
-    const optimized = await optimizeImage(bytes, mime);
+    const optimized = await optimizeImage(bytes, mime, kind);
     body = optimized.body;
     contentType = optimized.contentType;
     ext = optimized.ext;

@@ -116,6 +116,9 @@ export function serializePost(
   return {
     id: post.id,
     type: post.type || 'TEXT',
+    // Visibilidad expuesta para que la UI pueda marcar posts privados
+    // con su insignia de candado ("visible solo para ti").
+    visibility: post.visibility,
     title: post.title ?? '',
     body: post.content,
     coverImageUrl: post.coverImageUrl,

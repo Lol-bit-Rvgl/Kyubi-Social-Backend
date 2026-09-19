@@ -29,6 +29,7 @@ import { GET as userPosts } from '@/app/posts/user/[username]/route';
 import { GET as getPost, PATCH as patchPost, DELETE as deletePost } from '@/app/api/posts/[id]/route';
 import { POST as react, DELETE as unreact } from '@/app/api/posts/[id]/react/route';
 import { canAccessPost } from '@/lib/posts';
+import { serializePost } from '@/lib/serialize';
 
 const m = prisma as unknown as PrismaMock;
 
@@ -308,5 +309,97 @@ describe('filtrado de publicaciones ocultas', () => {
     m.user.findUnique.mockResolvedValue({ id: 'user-mod', role: 'MODERATOR' });
     const accessMod = await canAccessPost('post-h', 'user-mod');
     expect(accessMod).toEqual(hiddenPost);
+  });
+});
+
+describe('visibilidad de publicaciones en el muro del perfil', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('userPosts sin filtro de visibility para el propio autor (ve sus PRIVATE)', async () => {
+    const token = await tokenFor({ ...baseUser(), id: 'user-1', email: 'u1@test.com', username: 'user_one' });
+    m.user.findUnique.mockResolvedValue({ id: 'user-1', role: 'USER' });
+    m.post.findMany.mockResolvedValue([]);
+    m.reaction.findMany.mockResolvedValue([]);
+    m.post.count.mockResolvedValue(0);
+
+    const res = await userPosts(
+      jsonRequest('http://localhost/posts/user/me', { token }),
+      { params: Promise.resolve({ username: 'me' }) }
+    );
+    expect(res.status).toBe(200);
+
+    const callWhere = m.post.findMany.mock.calls[0][0].where;
+    expect(callWhere.authorId).toBe('user-1');
+    expect(callWhere.visibility).toBeUndefined();
+  });
+
+  it('userPosts filtra PUBLIC para un tercero (nunca PRIVATE)', async () => {
+    const token = await tokenFor({ ...baseUser(), id: 'user-viewer', email: 'v@test.com', username: 'viewer' });
+    m.user.findFirst.mockResolvedValue({ id: 'target-1', username: 'target' });
+    m.user.findUnique.mockResolvedValue({ id: 'user-viewer', role: 'USER' });
+    m.follow.findUnique.mockResolvedValue(null);
+    m.post.findMany.mockResolvedValue([]);
+    m.reaction.findMany.mockResolvedValue([]);
+    m.post.count.mockResolvedValue(0);
+
+    const res = await userPosts(
+      jsonRequest('http://localhost/posts/user/target', { token }),
+      { params: Promise.resolve({ username: 'target' }) }
+    );
+    expect(res.status).toBe(200);
+    expect(m.post.findMany.mock.calls[0][0].where.visibility).toBe('PUBLIC');
+  });
+
+  it('userPosts incluye FOLLOWERS para un seguidor pero excluye PRIVATE', async () => {
+    const token = await tokenFor({ ...baseUser(), id: 'user-follower', email: 'f@test.com', username: 'follower' });
+    m.user.findFirst.mockResolvedValue({ id: 'target-1', username: 'target' });
+    m.user.findUnique.mockResolvedValue({ id: 'user-follower', role: 'USER' });
+    m.follow.findUnique.mockResolvedValue({ id: 'follow-1' });
+    m.post.findMany.mockResolvedValue([]);
+    m.reaction.findMany.mockResolvedValue([]);
+    m.post.count.mockResolvedValue(0);
+
+    const res = await userPosts(
+      jsonRequest('http://localhost/posts/user/target', { token }),
+      { params: Promise.resolve({ username: 'target' }) }
+    );
+    expect(res.status).toBe(200);
+
+    const visibility = m.post.findMany.mock.calls[0][0].where.visibility;
+    expect(visibility).toEqual({ in: ['PUBLIC', 'FOLLOWERS'] });
+    expect(JSON.stringify(visibility)).not.toContain('PRIVATE');
+  });
+
+  it('serializePost expone visibility para que la UI marque los posts privados', () => {
+    const payload = serializePost(
+      {
+        id: 'post-priv',
+        type: 'TEXT',
+        title: null,
+        content: 'secreto',
+        visibility: 'PRIVATE',
+        authorId: 'user-1',
+        createdAt: new Date(),
+        author: authorUser,
+        reactions: [],
+        comments: [],
+        _count: { comments: 0, reactions: 0 },
+      } as never
+    );
+    expect(payload.visibility).toBe('PRIVATE');
+  });
+
+  it('mobileFeed sigue excluyendo PRIVATE del feed global', async () => {
+    const token = await tokenFor();
+    m.follow.findMany.mockResolvedValue([]);
+    m.post.findMany.mockResolvedValue([]);
+    m.reaction.findMany.mockResolvedValue([]);
+    m.post.count.mockResolvedValue(0);
+
+    const res = await mobileFeed(jsonRequest('http://localhost/posts/feed?category=para_ti', { token }));
+    expect(res.status).toBe(200);
+
+    const where = m.post.findMany.mock.calls[0][0].where;
+    expect(where.visibility).toBe('PUBLIC');
   });
 });

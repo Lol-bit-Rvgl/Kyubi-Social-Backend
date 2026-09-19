@@ -39,9 +39,15 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
   const where = {
     authorId: target.id,
     ...(canSeeHidden ? {} : { isHidden: false }),
-    ...(canSeePrivate
-      ? { visibility: { in: [PostVisibility.PUBLIC, PostVisibility.FOLLOWERS] } }
-      : { visibility: PostVisibility.PUBLIC }),
+    // Control estricto de visibilidad:
+    // - El propio autor ve TODO su muro (PUBLIC, FOLLOWERS, PRIVATE, CIRCLE).
+    // - Sus seguidores ven PUBLIC + FOLLOWERS.
+    // - Un tercero solo ve PUBLIC (PRIVATE nunca se filtra a terceros).
+    ...(isMe
+      ? {}
+      : canSeePrivate
+        ? { visibility: { in: [PostVisibility.PUBLIC, PostVisibility.FOLLOWERS] } }
+        : { visibility: PostVisibility.PUBLIC }),
   };
 
   const posts = await prisma.post.findMany({

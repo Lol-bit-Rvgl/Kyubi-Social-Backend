@@ -1668,7 +1668,7 @@ describe('salas', () => {
       });
       m.user.findUnique.mockResolvedValue({ id: 'user-1', username: 'user_one', displayName: 'User One' });
       m.room.update.mockResolvedValue(existingRoom);
-      m.roomParticipant.updateMany.mockResolvedValue({ count: 1 });
+      m.roomParticipant.updateMany?.mockResolvedValue({ count: 1 });
 
       const res = await occupyRole(
         jsonRequest('http://localhost/salas/room-1/roles/occupy', {
@@ -1722,7 +1722,7 @@ describe('salas', () => {
       });
       m.user.findUnique.mockResolvedValue({ id: 'user-1', username: 'user_one', displayName: 'User One' });
       m.room.update.mockResolvedValue(existingRoom);
-      m.roomParticipant.updateMany.mockResolvedValue({ count: 1 });
+      m.roomParticipant.updateMany?.mockResolvedValue({ count: 1 });
 
       const res = await occupyRole(
         jsonRequest('http://localhost/salas/room-1/roles/occupy', {

@@ -10,9 +10,27 @@ export type PrismaMock = {
   reaction: { upsert: Mock; deleteMany: Mock; findMany: Mock };
   circle: { findMany: Mock; findUnique: Mock; create: Mock; update: Mock; delete: Mock; count: Mock };
   circleMember: { findMany: Mock; findUnique: Mock; create: Mock; update: Mock; delete: Mock };
+  character: {
+    findMany: Mock;
+    findUnique: Mock;
+    findFirst: Mock;
+    create: Mock;
+    update: Mock;
+    delete: Mock;
+    [key: string]: any;
+  };
   room: { findMany: Mock; findUnique: Mock; create: Mock; update: Mock; delete: Mock; count: Mock };
-  roomParticipant: { findMany: Mock; findUnique: Mock; create: Mock; update: Mock; updateMany?: Mock; upsert?: Mock; delete: Mock; deleteMany: Mock; count: Mock };
+  roomParticipant: { findMany: Mock; findUnique: Mock; create: Mock; update: Mock; updateMany: Mock; upsert?: Mock; delete: Mock; deleteMany: Mock; count: Mock };
   roomMessage: { create: Mock; findMany: Mock; findUnique: Mock; update: Mock; delete: Mock };
+  message: {
+    create: Mock;
+    findMany: Mock;
+    findUnique: Mock;
+    findFirst: Mock;
+    update: Mock;
+    delete: Mock;
+    [key: string]: any;
+  };
   ban: { findFirst: Mock; findMany: Mock; findUnique: Mock; create: Mock; update: Mock; updateMany: Mock; count: Mock };
   mute: { findFirst: Mock; findMany: Mock; findUnique: Mock; create: Mock; update: Mock; updateMany: Mock; count: Mock };
   moderationLog: { findMany: Mock; create: Mock; count: Mock };

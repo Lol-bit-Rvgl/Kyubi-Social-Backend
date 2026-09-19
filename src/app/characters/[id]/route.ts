@@ -3,6 +3,7 @@ import { requireSession } from '@/lib/auth';
 import { serializeCharacter } from '@/lib/character';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
+import { emitToSala } from '@/lib/socketio';
 
 const stringList = (max = 40) =>
   z.array(z.string().trim().min(1).max(max)).max(20).optional();
@@ -131,6 +132,83 @@ export const DELETE = withErrorHandling(
     }
 
     await prisma.character.delete({ where: { id } });
+
+    // Saneamiento en eliminación: purgar o vaciar slots en salas activas que referencien a este personaje
+    const activeRooms = await prisma.room.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, stageRoles: true },
+    });
+
+    for (const room of activeRooms) {
+      if (!Array.isArray(room.stageRoles)) continue;
+      let changed = false;
+      const updatedStageRoles = (room.stageRoles as any[]).map((r, idx) => {
+        if (
+          r &&
+          (String(r.id).trim() === id ||
+            String(r.characterId || '').trim() === id)
+        ) {
+          changed = true;
+          return {
+            ...r,
+            id: `slot-${idx + 1}`,
+            name: `Slot ${idx + 1}`,
+            isTaken: false,
+            isOccupied: false,
+            takenByUserId: null,
+            takenByUsername: null,
+            occupiedBy: null,
+            occupiedByName: null,
+            avatarUrl: null,
+            tagline: '',
+            description: '',
+          };
+        }
+        return r;
+      });
+
+      if (changed) {
+        await prisma.room.update({
+          where: { id: room.id },
+          data: { stageRoles: updatedStageRoles },
+        });
+
+        // Limpiar en participantes que tenían este personaje equipado
+        const participants = await prisma.roomParticipant.findMany({
+          where: { roomId: room.id },
+        });
+        for (const p of participants) {
+          const meta = (p.metadata as Record<string, any>) || {};
+          if (
+            meta.activeCharacter &&
+            (String(meta.activeCharacter.id).trim() === id ||
+              String(meta.activeCharacter.characterId || '').trim() === id)
+          ) {
+            await prisma.roomParticipant.update({
+              where: { id: p.id },
+              data: {
+                metadata: {
+                  ...meta,
+                  activeCharacter: null,
+                },
+              },
+            });
+          }
+        }
+
+        emitToSala(room.id, 'roleplay:slot_updated', {
+          action: 'delete',
+          roleId: id,
+          stageRoles: updatedStageRoles,
+        });
+        emitToSala(room.id, 'room:stage_role', {
+          action: 'delete',
+          roleId: id,
+          stageRoles: updatedStageRoles,
+        });
+      }
+    }
+
     return ok({ success: true });
   }
 );

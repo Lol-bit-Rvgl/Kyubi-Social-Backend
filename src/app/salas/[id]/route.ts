@@ -45,6 +45,56 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
     }
   }
 
+  // Hidratación defensiva: sanear roles en stageRoles que referencien personajes eliminados
+  if (Array.isArray(room.stageRoles) && room.stageRoles.length > 0) {
+    const charIds = (room.stageRoles as any[])
+      .filter((r) => r && r.id && !String(r.id).startsWith('slot-'))
+      .map((r) => String(r.id).trim());
+
+    if (charIds.length > 0) {
+      const existingChars = await prisma.character.findMany({
+        where: { id: { in: charIds } },
+        select: { id: true },
+      });
+      const existingSet = new Set(existingChars.map((c) => c.id));
+
+      let stageRolesChanged = false;
+      const sanitizedRoles = (room.stageRoles as any[]).map((r, idx) => {
+        if (
+          r &&
+          r.id &&
+          !String(r.id).startsWith('slot-') &&
+          !existingSet.has(String(r.id).trim())
+        ) {
+          stageRolesChanged = true;
+          return {
+            ...r,
+            id: `slot-${idx + 1}`,
+            name: `Slot ${idx + 1}`,
+            isTaken: false,
+            isOccupied: false,
+            takenByUserId: null,
+            takenByUsername: null,
+            occupiedBy: null,
+            occupiedByName: null,
+            avatarUrl: null,
+            tagline: '',
+            description: '',
+          };
+        }
+        return r;
+      });
+
+      if (stageRolesChanged) {
+        await prisma.room.update({
+          where: { id },
+          data: { stageRoles: sanitizedRoles },
+        });
+        (room as any).stageRoles = sanitizedRoles;
+      }
+    }
+  }
+
   return ok(serializeRoom(room, { myUserId: session.userId, isParticipant: isHost || (participant != null && participant.role !== 'INVITED'), fullParticipants: room.participants }));
 });
 

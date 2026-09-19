@@ -42,6 +42,8 @@ import { POST as joinSala } from '@/app/salas/[id]/join/route';
 import { POST as leaveSala } from '@/app/salas/[id]/leave/route';
 import { POST as updateStageRole } from '@/app/salas/[id]/stage/role/route';
 import { POST as occupyRole } from '@/app/salas/[id]/roles/occupy/route';
+import { POST as leaveRole } from '@/app/salas/[id]/roles/leave/route';
+import { DELETE as deleteCharacter } from '@/app/characters/[id]/route';
 import { POST as votePoll } from '@/app/salas/[id]/messages/[messageId]/vote/route';
 import { PATCH as patchMode } from '@/app/salas/[id]/mode/route';
 import { POST as postMessage, GET as getMessages } from '@/app/salas/[id]/messages/route';
@@ -1639,6 +1641,121 @@ describe('salas', () => {
       // El slot previo fue liberado, por lo que el primer slot vacante ahora es el índice 0
       expect(data.slotIndex).toBe(0);
       expect(data.role.name).toBe('Lyra');
+    });
+
+    it('POST /salas/[id]/roles/leave con slotIndex desocupa solo esa casilla y preserva otros slots del usuario', async () => {
+      const token = await tokenFor('user-1');
+      const existingRoom = baseRoom({
+        stageRoles: [
+          { id: 'slot-1', name: 'Guerrero', isTaken: true, takenByUserId: 'user-1' },
+          { id: 'slot-2', name: 'Mago', isTaken: true, takenByUserId: 'user-1' },
+        ],
+      });
+
+      m.room.findUnique.mockResolvedValue(existingRoom);
+      m.room.update.mockResolvedValue(existingRoom);
+      m.roomParticipant.findUnique.mockResolvedValue({
+        id: 'rp-1',
+        roomId: 'room-1',
+        userId: 'user-1',
+        metadata: { activeCharacter: { id: 'slot-1' } },
+      });
+      m.roomParticipant.update.mockResolvedValue({ id: 'rp-1' });
+
+      const res = await leaveRole(
+        jsonRequest('http://localhost/salas/room-1/roles/leave', {
+          method: 'POST',
+          token,
+          body: { slotIndex: 0 },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+      expect(data.slotIndex).toBe(0);
+      // El slot 0 debe estar vacante, mientras el slot 1 sigue ocupado por user-1
+      expect(data.stageRoles[0].isTaken).toBe(false);
+      expect(data.stageRoles[1].isTaken).toBe(true);
+      expect(data.stageRoles[1].takenByUserId).toBe('user-1');
+      // activeCharacter debe reasignarse al rol restante
+      expect(m.roomParticipant.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            metadata: expect.objectContaining({
+              activeCharacter: expect.objectContaining({ id: 'slot-2' }),
+            }),
+          }),
+        })
+      );
+    });
+
+    it('GET /salas/[id] purga defensivamente personajes eliminados de stageRoles', async () => {
+      const token = await tokenFor('user-1');
+      const ghostRoom = baseRoom({
+        stageRoles: [
+          { id: 'char-deleted', name: 'Fantasma', isTaken: true, takenByUserId: 'user-2' },
+          { id: 'slot-2', name: 'Slot 2', isTaken: false },
+        ],
+      });
+
+      m.room.findUnique.mockResolvedValue(ghostRoom);
+      m.character.findMany.mockResolvedValue([]); // Ningún personaje existe en DB
+      m.room.update.mockResolvedValue(ghostRoom);
+
+      const res = await getSala(
+        jsonRequest('http://localhost/salas/room-1', { token }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+
+      expect(res.status).toBe(200);
+      expect(m.room.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'room-1' },
+          data: expect.objectContaining({
+            stageRoles: expect.arrayContaining([
+              expect.objectContaining({ id: 'slot-1', isTaken: false }),
+            ]),
+          }),
+        })
+      );
+    });
+
+    it('DELETE /characters/[id] purga referencias al personaje en las salas activas', async () => {
+      const token = await tokenFor('user-1');
+      m.character.findUnique.mockResolvedValue({ id: 'char-to-delete', userId: 'user-1' });
+      m.character.delete.mockResolvedValue({ id: 'char-to-delete' });
+      m.room.findMany.mockResolvedValue([
+        baseRoom({
+          id: 'room-active',
+          stageRoles: [
+            { id: 'char-to-delete', name: 'Muerto', isTaken: true, takenByUserId: 'user-1' },
+          ],
+        }),
+      ]);
+      m.room.update.mockResolvedValue({});
+      m.roomParticipant.findMany.mockResolvedValue([
+        { id: 'rp-1', roomId: 'room-active', metadata: { activeCharacter: { id: 'char-to-delete' } } },
+      ]);
+      m.roomParticipant.update.mockResolvedValue({});
+
+      const res = await deleteCharacter(
+        jsonRequest('http://localhost/characters/char-to-delete', { method: 'DELETE', token }),
+        { params: Promise.resolve({ id: 'char-to-delete' }) }
+      );
+
+      expect(res.status).toBe(200);
+      expect(m.room.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'room-active' },
+          data: expect.objectContaining({
+            stageRoles: expect.arrayContaining([
+              expect.objectContaining({ id: 'slot-1', isTaken: false }),
+            ]),
+          }),
+        })
+      );
     });
   });
 });

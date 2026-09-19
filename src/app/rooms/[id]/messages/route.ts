@@ -66,8 +66,29 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
 const sendSchema = z.object({
   body: z.string().trim().max(4000).optional().default(''),
   content: z.string().trim().max(4000).optional(),
+  type: z.string().trim().optional(),
   mediaUrl: optionalSafeMediaUrl,
   mediaType: z.string().nullable().optional(),
+  stickerUrl: optionalSafeMediaUrl,
+  stickerId: z.string().nullable().optional(),
+  poll: z
+    .union([
+      z.object({
+        question: z.string().trim().max(200),
+        options: z
+          .array(
+            z.union([
+              z.string().trim().max(100),
+              z.object({ text: z.string() }).passthrough(),
+            ]),
+          )
+          .min(2)
+          .max(10),
+      }),
+      z.record(z.string(), z.unknown()),
+    ])
+    .nullable()
+    .optional(),
   replyToId: z.string().nullable().optional(),
 
   // ── Roleplay / OCs ──
@@ -93,15 +114,70 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   if (!body.success) return fail('Datos inválidos');
 
   const rawBody = body.data.body || body.data.content || '';
-  const hasAttachment = Boolean(body.data.mediaUrl);
-  const hasExtension = Boolean(
-    body.data.extensions && Object.keys(body.data.extensions).length > 0
-  );
+  const mediaUrl = body.data.mediaUrl || body.data.stickerUrl || null;
+  const upperType = body.data.type?.toUpperCase();
+
+  let effectiveMediaType = body.data.mediaType;
+  if (!effectiveMediaType) {
+    if (upperType === 'IMAGE') {
+      effectiveMediaType = 'image';
+    } else if (upperType === 'STICKER' || body.data.stickerUrl || body.data.stickerId) {
+      effectiveMediaType = 'sticker';
+    } else if (upperType === 'POLL' || body.data.poll) {
+      effectiveMediaType = 'poll';
+    } else if (upperType === 'VOICE_NOTE' || upperType === 'AUDIO') {
+      effectiveMediaType = 'audio';
+    } else if (mediaUrl) {
+      effectiveMediaType = 'image';
+    }
+  }
+
+  const extensions: Record<string, unknown> = {
+    ...(body.data.extensions || {}),
+  };
+
+  if (body.data.stickerId) {
+    extensions.stickerId = body.data.stickerId;
+    extensions.isAnimated = true;
+  }
+  if (body.data.stickerUrl) {
+    extensions.stickerUrl = body.data.stickerUrl;
+    extensions.assetPath = body.data.stickerUrl;
+  }
+  if (body.data.poll) {
+    const rawPoll = body.data.poll as any;
+    const question = String(rawPoll.question || 'Encuesta').trim();
+    let options: Array<{ id: string; text: string; votes: number }> = [];
+    if (Array.isArray(rawPoll.options)) {
+      options = rawPoll.options.map((opt: any, idx: number) => {
+        const text =
+          typeof opt === 'string'
+            ? opt
+            : String(opt?.text || `Opción ${idx + 1}`);
+        const optId =
+          typeof opt === 'object' && opt?.id ? String(opt.id) : `opt_${idx + 1}`;
+        const votes =
+          typeof opt === 'object' && typeof opt?.votes === 'number'
+            ? opt.votes
+            : 0;
+        return { id: optId, text, votes };
+      });
+    }
+    extensions.poll = {
+      question,
+      options,
+      totalVotes:
+        typeof rawPoll.totalVotes === 'number' ? rawPoll.totalVotes : 0,
+    };
+  }
+
+  const hasAttachment = Boolean(mediaUrl);
+  const hasExtension = Object.keys(extensions).length > 0;
   const isSpecialType =
-    body.data.mediaType === 'sticker' ||
-    body.data.mediaType === 'audio' ||
-    body.data.mediaType === 'poll' ||
-    body.data.mediaType === 'dice';
+    effectiveMediaType === 'sticker' ||
+    effectiveMediaType === 'audio' ||
+    effectiveMediaType === 'poll' ||
+    effectiveMediaType === 'dice';
 
   if (!rawBody && !hasAttachment && !hasExtension && !isSpecialType) {
     return fail('El contenido del mensaje no puede estar vacío', 400);
@@ -115,15 +191,20 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
     if (!reply) return fail('Mensaje de referencia no encontrado', 404);
   }
 
-  const effectiveBody =
-    rawBody ||
-    (body.data.mediaType === 'sticker'
-      ? (typeof (body.data.extensions as any)?.name === 'string' && (body.data.extensions as any).name
-        ? `:${(body.data.extensions as any).name}:`
-        : '🎨 Sticker')
-      : '');
-  const effectiveMediaType =
-    body.data.mediaType ?? (body.data.mediaUrl ? 'image' : null);
+  let effectiveBody = rawBody;
+  if (!effectiveBody) {
+    if (effectiveMediaType === 'sticker') {
+      effectiveBody =
+        typeof extensions.name === 'string' && extensions.name
+          ? `:${extensions.name}:`
+          : '🎨 Sticker';
+    } else if (effectiveMediaType === 'poll') {
+      const q = (extensions.poll as any)?.question || 'Encuesta';
+      effectiveBody = `📊 Encuesta: ${q}`;
+    } else if (effectiveMediaType === 'image') {
+      effectiveBody = '';
+    }
+  }
 
   const message = await prisma.$transaction(async (tx) => {
     const created = await tx.message.create({
@@ -131,15 +212,14 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
         conversationId: id,
         senderId: session.userId,
         body: effectiveBody,
-        mediaUrl: body.data.mediaUrl ?? null,
-        mediaType: effectiveMediaType,
+        mediaUrl: mediaUrl ?? null,
+        mediaType: effectiveMediaType ?? (mediaUrl ? 'image' : null),
         replyToId: body.data.replyToId ?? null,
 
         characterId: body.data.characterId ?? null,
         characterName: body.data.characterName ?? null,
         characterAvatarUrl: body.data.characterAvatarUrl ?? null,
-        extensions: (body.data.extensions ?? {}) as Prisma.InputJsonValue,
-
+        extensions: extensions as Prisma.InputJsonValue,
       },
       include: messageInclude,
     });
@@ -182,6 +262,7 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   });
 
   emitToConversation(id, 'message:new', serializeMessage(message));
+  emitToConversation(id, 'conversation:message', serializeMessage(message));
   // El receptor puede no estar unido al canal `conversation:<id>` (solo se une
   // al abrir el chat). Empujamos también a la sala personal de cada miembro
   // (salvo el emisor) para mantener la bandeja de conversaciones al día.
@@ -191,6 +272,7 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   });
   for (const member of memberIds) {
     emitToUser(member.userId, 'message:new', serializeMessage(message));
+    emitToUser(member.userId, 'conversation:message', serializeMessage(message));
   }
 
   // ── Push FCM para DMs ──

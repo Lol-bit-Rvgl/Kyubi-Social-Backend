@@ -44,6 +44,7 @@ const bodySchema = z.object({
   action: z.enum(['take', 'leave', 'create', 'update', 'delete']).optional(),
   role: roleSchema.nullable().optional(),
   roleId: z.string().optional(),
+  slotIndex: z.number().int().min(0).max(50).optional(),
 });
 
 export const POST = withErrorHandling(
@@ -275,30 +276,66 @@ export const POST = withErrorHandling(
       });
     } else {
       // Liberar rol (leave):
+      const { slotIndex } = parsed.data;
       let targetRoleId = role?.id || roleId;
+      let leftRole: any = null;
+
+      if (slotIndex !== undefined && slotIndex >= 0 && slotIndex < currentStageRoles.length) {
+        const slot = currentStageRoles[slotIndex];
+        leftRole = { ...slot };
+        targetRoleId = slot.id;
+        currentStageRoles[slotIndex] = {
+          ...slot,
+          isTaken: false,
+          isOccupied: false,
+          takenByUserId: null,
+          takenByUsername: null,
+          occupiedBy: null,
+          occupiedByName: null,
+        };
+      } else if (targetRoleId) {
+        const idx = currentStageRoles.findIndex((r) => String(r.id).trim() === targetRoleId);
+        if (idx >= 0) {
+          const slot = currentStageRoles[idx];
+          leftRole = { ...slot };
+          currentStageRoles[idx] = {
+            ...slot,
+            isTaken: false,
+            isOccupied: false,
+            takenByUserId: null,
+            takenByUsername: null,
+            occupiedBy: null,
+            occupiedByName: null,
+          };
+        }
+      } else {
+        for (const r of currentStageRoles) {
+          if (r.takenByUserId === session.userId || r.occupiedBy === session.userId) {
+            leftRole = leftRole || { ...r };
+            if (!targetRoleId) targetRoleId = r.id;
+            r.isOccupied = false;
+            r.isTaken = false;
+            r.occupiedBy = null;
+            r.takenByUserId = null;
+            r.occupiedByName = null;
+            r.takenByUsername = null;
+          }
+        }
+      }
+
+      // Buscar si el usuario aún posee otro rol en el stage
+      const remainingRole = currentStageRoles.find(
+        (r) =>
+          r.isTaken &&
+          (r.takenByUserId === session.userId || r.occupiedBy === session.userId)
+      );
 
       await prisma.roomParticipant.updateMany({
         where: { roomId, userId: session.userId },
         data: {
-          metadata: {},
+          metadata: remainingRole ? { activeCharacter: remainingRole } : {},
         },
       });
-
-      for (const r of currentStageRoles) {
-        if (
-          r.takenByUserId === session.userId ||
-          r.occupiedBy === session.userId ||
-          (targetRoleId && r.id === targetRoleId)
-        ) {
-          if (!targetRoleId) targetRoleId = r.id;
-          r.isOccupied = false;
-          r.isTaken = false;
-          r.occupiedBy = null;
-          r.takenByUserId = null;
-          r.occupiedByName = null;
-          r.takenByUsername = null;
-        }
-      }
 
       await prisma.room.update({
         where: { id: roomId },
@@ -307,7 +344,18 @@ export const POST = withErrorHandling(
 
       emitToSala(roomId, 'room:stage_role', {
         action: 'leave',
+        role: leftRole,
         roleId: targetRoleId,
+        slotIndex,
+        stageRoles: currentStageRoles,
+        userId: session.userId,
+      });
+
+      emitToSala(roomId, 'roleplay:slot_updated', {
+        action: 'leave',
+        role: leftRole,
+        roleId: targetRoleId,
+        slotIndex,
         stageRoles: currentStageRoles,
         userId: session.userId,
       });
@@ -315,7 +363,9 @@ export const POST = withErrorHandling(
       return ok({
         success: true,
         action: 'leave',
+        role: leftRole,
         roleId: targetRoleId,
+        slotIndex,
         stageRoles: currentStageRoles,
       });
     }

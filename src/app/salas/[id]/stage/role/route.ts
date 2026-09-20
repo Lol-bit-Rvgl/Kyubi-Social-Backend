@@ -78,10 +78,17 @@ export const POST = withErrorHandling(
     // ── GESTIÓN DE ROLES (CREAR / EDITAR / ELIMINAR) ──
     if (action === 'create' || action === 'update') {
       const canManage = await canManageRoom(roomId, session.userId);
-      if (!canManage) return fail('No tienes permiso para gestionar roles en esta sala', 403);
+      const roleIndex = role ? currentStageRoles.findIndex((r) => r.id === role.id) : -1;
+      const isOccupant =
+        roleIndex >= 0 &&
+        (currentStageRoles[roleIndex].takenByUserId === session.userId ||
+          currentStageRoles[roleIndex].occupiedBy === session.userId);
+
+      if (!canManage && !isOccupant) {
+        return fail('No tienes permiso para gestionar roles en esta sala', 403);
+      }
       if (!role) return fail('Datos de rol requeridos', 400);
 
-      const roleIndex = currentStageRoles.findIndex((r) => r.id === role.id);
       let updatedRole: any;
 
       if (roleIndex >= 0) {

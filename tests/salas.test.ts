@@ -1701,7 +1701,7 @@ describe('salas', () => {
       );
     });
 
-    it('POST /salas/[id]/roles/occupy libera slot previo y busca primer slot libre sin slotIndex', async () => {
+    it('POST /salas/[id]/roles/occupy permite múltiples slots al mismo usuario y busca primer slot libre sin slotIndex', async () => {
       const token = await tokenFor('user-1');
       const existingRoom = baseRoom({
         stageRoles: [
@@ -1736,9 +1736,48 @@ describe('salas', () => {
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data.success).toBe(true);
-      // El slot previo fue liberado, por lo que el primer slot vacante ahora es el índice 0
-      expect(data.slotIndex).toBe(0);
+      // El slot previo no se libera: se preserva en el índice 0 y el nuevo personaje ocupa el índice 1
+      expect(data.slotIndex).toBe(1);
+      expect(data.stageRoles[0].isTaken).toBe(true);
+      expect(data.stageRoles[0].takenByUserId).toBe('user-1');
+      expect(data.stageRoles[1].isTaken).toBe(true);
+      expect(data.stageRoles[1].takenByUserId).toBe('user-1');
       expect(data.role.name).toBe('Lyra');
+    });
+
+    it('POST /salas/[id]/roles/occupy rechaza con 409 Conflict si otro usuario intenta ocupar un slot tomado', async () => {
+      const token = await tokenFor('user-2');
+      const existingRoom = baseRoom({
+        stageRoles: [
+          { id: 'slot-1', name: 'Guerrero', isTaken: true, takenByUserId: 'user-1', occupiedBy: 'user-1' },
+          { id: 'slot-2', name: 'Mago', isTaken: false, isOccupied: false },
+        ],
+      });
+
+      m.room.findUnique.mockResolvedValue(existingRoom);
+      m.character.findFirst.mockResolvedValue({
+        id: 'char-other',
+        name: 'Sombra',
+        avatarUrl: null,
+        tagline: 'Pícaro',
+        description: '',
+        themeColor: '#9C27B0',
+        userId: 'user-2',
+      });
+      m.user.findUnique.mockResolvedValue({ id: 'user-2', username: 'user_two', displayName: 'User Two' });
+
+      const res = await occupyRole(
+        jsonRequest('http://localhost/salas/room-1/roles/occupy', {
+          method: 'POST',
+          token,
+          body: { slotIndex: 0, roleSheetId: 'char-other' },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.error).toBe('Este espacio del stage ya está ocupado');
     });
 
     it('POST /salas/[id]/roles/leave con slotIndex desocupa solo esa casilla y preserva otros slots del usuario', async () => {

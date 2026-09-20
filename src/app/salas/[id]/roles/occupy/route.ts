@@ -49,13 +49,25 @@ export const POST = withErrorHandling(
         )
       : [];
 
-    // Liberar y resetear limpiamente cualquier otro slot previamente ocupado por este usuario o con este mismo personaje
+    let targetIndex = slotIndex;
+    if (targetIndex !== undefined && targetIndex >= 0) {
+      if (targetIndex < currentStageRoles.length) {
+        const currentOccupant = currentStageRoles[targetIndex];
+        const isOccupiedByOther =
+          (currentOccupant.isTaken || currentOccupant.isOccupied) &&
+          (currentOccupant.takenByUserId !== session.userId &&
+            currentOccupant.occupiedBy !== session.userId);
+        if (isOccupiedByOther) {
+          return fail('Este espacio del stage ya está ocupado', 409);
+        }
+      }
+    }
+
+    // Desduplicar únicamente si la misma ficha de personaje ya estaba en otro slot previo (mover la ficha)
     currentStageRoles = currentStageRoles.map((r, idx) => {
-      const isMyPreviousSlot =
-        r.takenByUserId === session.userId || r.occupiedBy === session.userId;
       const isSameCharacter =
         r.id === character.id || (r as any).characterId === character.id;
-      if (isMyPreviousSlot || isSameCharacter) {
+      if (isSameCharacter) {
         return {
           ...r,
           id: r.id.startsWith('slot-') ? r.id : `slot-${idx + 1}`,
@@ -94,17 +106,8 @@ export const POST = withErrorHandling(
       occupiedByName: userName,
     };
 
-    let targetIndex = slotIndex;
     if (targetIndex !== undefined && targetIndex >= 0) {
       if (targetIndex < currentStageRoles.length) {
-        const currentOccupant = currentStageRoles[targetIndex];
-        if (
-          currentOccupant.isTaken &&
-          currentOccupant.takenByUserId &&
-          currentOccupant.takenByUserId !== session.userId
-        ) {
-          return fail('Este espacio del stage ya está ocupado', 409);
-        }
         currentStageRoles[targetIndex] = occupiedRole;
       } else {
         while (currentStageRoles.length < targetIndex) {

@@ -199,14 +199,10 @@ async function handleModeChange(request: Request, roomId: string) {
 
     // Inicialización y saneamiento limpio de slots al entrar o reactivar roleplay
     if (targetMode === 'roleplay') {
-      const activeParticipantIds = new Set(
-        (existing.participants || []).map((p) => p.userId)
-      );
       const rawRoles = Array.isArray(existing.stageRoles)
         ? (existing.stageRoles as any[])
         : [];
       const seenCharacterIds = new Set<string>();
-      const seenOccupantIds = new Set<string>();
 
       const cleanRoles = rawRoles
         .filter(
@@ -217,16 +213,12 @@ async function handleModeChange(request: Request, roomId: string) {
             String(r.name || '').trim().length > 0
         )
         .map((r, idx) => {
-          const occupant = r.takenByUserId || r.occupiedBy;
           const charId = String(r.characterId || r.id || '').trim();
-          const isPresent = occupant && activeParticipantIds.has(occupant);
+          const isDuplicateCharacter =
+            charId && !charId.startsWith('slot-') && seenCharacterIds.has(charId);
 
-          // Si el ocupante ya no está en la sala, o si hay duplicados: vaciar slot a neutral
-          if (
-            !isPresent ||
-            (occupant && seenOccupantIds.has(occupant)) ||
-            (charId && !charId.startsWith('slot-') && seenCharacterIds.has(charId))
-          ) {
+          // Si hay duplicados de la misma ficha de personaje: vaciar slot duplicado a neutral
+          if (isDuplicateCharacter) {
             return {
               id: `slot-${idx + 1}`,
               name: `Slot ${idx + 1}`,
@@ -245,7 +237,6 @@ async function handleModeChange(request: Request, roomId: string) {
             };
           }
 
-          if (occupant) seenOccupantIds.add(occupant);
           if (charId && !charId.startsWith('slot-')) seenCharacterIds.add(charId);
           return r;
         });

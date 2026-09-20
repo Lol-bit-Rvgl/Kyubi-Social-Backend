@@ -20,6 +20,7 @@ const EXT_BY_MIME: Record<string, string> = {
 export const KIND_MAX_BYTES: Record<string, number> = {
   avatar: 5 * 1024 * 1024,
   banner: 5 * 1024 * 1024,
+  sticker: 10 * 1024 * 1024,
   media: 50 * 1024 * 1024,
   post: 50 * 1024 * 1024,
   attachment: 50 * 1024 * 1024,
@@ -181,6 +182,8 @@ export function folderFor(kind: string): string {
       return 'avatars';
     case 'banner':
       return 'banners';
+    case 'sticker':
+      return 'stickers';
     case 'media':
       return 'media';
     case 'post':
@@ -197,6 +200,9 @@ type OptimizedImage = { body: Buffer; contentType: string; ext: string };
  * Comprime/redimensiona imágenes con `sharp` para optimizar el ancho de banda
  * móvil. Las imágenes se normalizan a WebP (excepto GIF, para no romper la
  * animación). Devuelve el buffer optimizado + su content-type y extensión.
+ *
+ * Para stickers y WebP animados se usa `{ animated: true }` y calidad 90 para
+ * no descartar los fotogramas de animación ni degradar la calidad.
  */
 async function optimizeImage(
   bytes: Buffer,
@@ -208,15 +214,24 @@ async function optimizeImage(
   }
 
   const isAvatar = kind.toLowerCase() === 'avatar';
-  const maxWidth = isAvatar ? 512 : Number(process.env.IMAGE_MAX_WIDTH || 1600);
-  const quality = Number(process.env.IMAGE_QUALITY || 82);
+  const isSticker = kind.toLowerCase() === 'sticker';
+  const maxWidth = isAvatar || isSticker ? 512 : Number(process.env.IMAGE_MAX_WIDTH || 1600);
+  const quality = isSticker ? 90 : Number(process.env.IMAGE_QUALITY || 82);
 
-  const transformer = sharp(bytes).rotate();
+  // Preserve all animation frames for animated WebP / PNG / images with { animated: true }
+  const transformer = sharp(bytes, { animated: true }).rotate();
   if (isAvatar) {
     transformer.resize({
       width: 512,
       height: 512,
       fit: 'cover',
+      withoutEnlargement: true,
+    });
+  } else if (isSticker) {
+    transformer.resize({
+      width: 512,
+      height: 512,
+      fit: 'inside',
       withoutEnlargement: true,
     });
   } else {

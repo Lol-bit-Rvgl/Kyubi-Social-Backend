@@ -49,17 +49,29 @@ export const POST = withErrorHandling(
         )
       : [];
 
-    // Liberar cualquier otro slot previamente ocupado por este usuario en esta sala
-    currentStageRoles = currentStageRoles.map((r) => {
-      if (r.takenByUserId === session.userId || r.occupiedBy === session.userId) {
+    // Liberar y resetear limpiamente cualquier otro slot previamente ocupado por este usuario o con este mismo personaje
+    currentStageRoles = currentStageRoles.map((r, idx) => {
+      const isMyPreviousSlot =
+        r.takenByUserId === session.userId || r.occupiedBy === session.userId;
+      const isSameCharacter =
+        r.id === character.id || (r as any).characterId === character.id;
+      if (isMyPreviousSlot || isSameCharacter) {
         return {
           ...r,
+          id: r.id.startsWith('slot-') ? r.id : `slot-${idx + 1}`,
+          name: r.id.startsWith('slot-') ? r.name : `Slot ${idx + 1}`,
+          avatarUrl: null,
+          colorHex: '#00E5FF',
+          tagline: '',
+          description: '',
+          language: 'Español',
           isTaken: false,
           isOccupied: false,
           takenByUserId: null,
           takenByUsername: null,
           occupiedBy: null,
           occupiedByName: null,
+          characterId: null,
         };
       }
       return r;
@@ -67,6 +79,7 @@ export const POST = withErrorHandling(
 
     const occupiedRole = {
       id: character.id,
+      characterId: character.id,
       name: character.name,
       avatarUrl: character.avatarUrl ?? null,
       colorHex: character.themeColor || '#00E5FF',

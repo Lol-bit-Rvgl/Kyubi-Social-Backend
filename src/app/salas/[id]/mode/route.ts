@@ -164,14 +164,18 @@ async function handleModeChange(request: Request, roomId: string) {
     // Limpieza atómica de Roleplay Stage al salir de roleplay
     if (previousMode === 'roleplay' && targetMode !== 'roleplay') {
       const currentStageRoles = Array.isArray(existing.stageRoles)
-        ? (existing.stageRoles as any[]).map((r) => ({
+        ? (existing.stageRoles as any[]).map((r, idx) => ({
             ...r,
+            id: r.id.startsWith('slot-') ? r.id : `slot-${idx + 1}`,
+            name: r.id.startsWith('slot-') ? r.name : `Slot ${idx + 1}`,
+            avatarUrl: null,
             isTaken: false,
             isOccupied: false,
             takenByUserId: null,
             takenByUsername: null,
             occupiedBy: null,
             occupiedByName: null,
+            characterId: null,
           }))
         : [];
       roomUpdateData.stageRoles = currentStageRoles;
@@ -191,6 +195,82 @@ async function handleModeChange(request: Request, roomId: string) {
           });
         }
       }
+    }
+
+    // Inicialización y saneamiento limpio de slots al entrar o reactivar roleplay
+    if (targetMode === 'roleplay') {
+      const activeParticipantIds = new Set(
+        (existing.participants || []).map((p) => p.userId)
+      );
+      const rawRoles = Array.isArray(existing.stageRoles)
+        ? (existing.stageRoles as any[])
+        : [];
+      const seenCharacterIds = new Set<string>();
+      const seenOccupantIds = new Set<string>();
+
+      const cleanRoles = rawRoles
+        .filter(
+          (r) =>
+            r &&
+            typeof r === 'object' &&
+            r.id &&
+            String(r.name || '').trim().length > 0
+        )
+        .map((r, idx) => {
+          const occupant = r.takenByUserId || r.occupiedBy;
+          const charId = String(r.characterId || r.id || '').trim();
+          const isPresent = occupant && activeParticipantIds.has(occupant);
+
+          // Si el ocupante ya no está en la sala, o si hay duplicados: vaciar slot a neutral
+          if (
+            !isPresent ||
+            (occupant && seenOccupantIds.has(occupant)) ||
+            (charId && !charId.startsWith('slot-') && seenCharacterIds.has(charId))
+          ) {
+            return {
+              id: `slot-${idx + 1}`,
+              name: `Slot ${idx + 1}`,
+              avatarUrl: null,
+              colorHex: '#00E5FF',
+              tagline: '',
+              description: '',
+              language: 'Español',
+              isTaken: false,
+              isOccupied: false,
+              takenByUserId: null,
+              takenByUsername: null,
+              occupiedBy: null,
+              occupiedByName: null,
+              characterId: null,
+            };
+          }
+
+          if (occupant) seenOccupantIds.add(occupant);
+          if (charId && !charId.startsWith('slot-')) seenCharacterIds.add(charId);
+          return r;
+        });
+
+      if (cleanRoles.length === 0) {
+        for (let i = 1; i <= 6; i++) {
+          cleanRoles.push({
+            id: `slot-${i}`,
+            name: `Slot ${i}`,
+            avatarUrl: null,
+            colorHex: '#00E5FF',
+            tagline: '',
+            description: '',
+            language: 'Español',
+            isTaken: false,
+            isOccupied: false,
+            takenByUserId: null,
+            takenByUsername: null,
+            occupiedBy: null,
+            occupiedByName: null,
+            characterId: null,
+          });
+        }
+      }
+      roomUpdateData.stageRoles = cleanRoles;
     }
 
     const updatedRoom = await tx.room.update({
@@ -238,6 +318,22 @@ async function handleModeChange(request: Request, roomId: string) {
       action: 'leave_all',
       stageRoles: updatedRoom.stageRoles,
       isActive: false,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // 1.2 Si se activó o reactivó el modo roleplay, emitir sincronización limpia de slots
+  if (targetMode === 'roleplay') {
+    emitToSala(roomId, 'room:stage_role', {
+      action: 'sync',
+      stageRoles: updatedRoom.stageRoles,
+      isActive: true,
+      timestamp: new Date().toISOString(),
+    });
+    emitToSala(roomId, 'roleplay:slot_updated', {
+      action: 'sync',
+      stageRoles: updatedRoom.stageRoles,
+      isActive: true,
       timestamp: new Date().toISOString(),
     });
   }

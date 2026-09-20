@@ -75,6 +75,11 @@ describe('subidas a la nube (S3-compatible)', () => {
     }
     expect(s3Mocks.send).toHaveBeenCalledTimes(2);
   });
+
+  it('guarda sticker en la carpeta stickers/', async () => {
+    const url = await saveUpload(pngFile(), 'sticker');
+    expect(url).toMatch(/^https:\/\/media\.example\.dev\/stickers\/.+\.webp$/);
+  });
 });
 
 describe('subidas en modo local (respaldo dev)', () => {
@@ -110,6 +115,7 @@ describe('carpeta lógica por tipo', () => {
     expect(folderFor('banner')).toBe('banners');
     expect(folderFor('media')).toBe('media');
     expect(folderFor('post')).toBe('posts');
+    expect(folderFor('sticker')).toBe('stickers');
     expect(folderFor('video')).toBe('misc');
   });
 });

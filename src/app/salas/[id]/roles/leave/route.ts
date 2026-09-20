@@ -42,12 +42,20 @@ export const POST = withErrorHandling(
       leftRole = { ...slot };
       currentStageRoles[slotIndex] = {
         ...slot,
+        id: slot.id.startsWith('slot-') ? slot.id : `slot-${slotIndex + 1}`,
+        name: slot.id.startsWith('slot-') ? slot.name : `Slot ${slotIndex + 1}`,
+        avatarUrl: null,
+        colorHex: '#00E5FF',
+        tagline: '',
+        description: '',
+        language: 'Español',
         isTaken: false,
         isOccupied: false,
         takenByUserId: null,
         takenByUsername: null,
         occupiedBy: null,
         occupiedByName: null,
+        characterId: null,
       };
     } else if (roleId) {
       const idx = currentStageRoles.findIndex((r) => String(r.id).trim() === roleId);
@@ -56,27 +64,43 @@ export const POST = withErrorHandling(
         leftRole = { ...slot };
         currentStageRoles[idx] = {
           ...slot,
+          id: slot.id.startsWith('slot-') ? slot.id : `slot-${idx + 1}`,
+          name: slot.id.startsWith('slot-') ? slot.name : `Slot ${idx + 1}`,
+          avatarUrl: null,
+          colorHex: '#00E5FF',
+          tagline: '',
+          description: '',
+          language: 'Español',
           isTaken: false,
           isOccupied: false,
           takenByUserId: null,
           takenByUsername: null,
           occupiedBy: null,
           occupiedByName: null,
+          characterId: null,
         };
       }
     } else {
       // Liberar todos los slots del usuario si no se especifica slotIndex ni roleId
-      currentStageRoles = currentStageRoles.map((r) => {
+      currentStageRoles = currentStageRoles.map((r, idx) => {
         if (r.takenByUserId === session.userId || r.occupiedBy === session.userId) {
           leftRole = leftRole || { ...r };
           return {
             ...r,
+            id: r.id.startsWith('slot-') ? r.id : `slot-${idx + 1}`,
+            name: r.id.startsWith('slot-') ? r.name : `Slot ${idx + 1}`,
+            avatarUrl: null,
+            colorHex: '#00E5FF',
+            tagline: '',
+            description: '',
+            language: 'Español',
             isTaken: false,
             isOccupied: false,
             takenByUserId: null,
             takenByUsername: null,
             occupiedBy: null,
             occupiedByName: null,
+            characterId: null,
           };
         }
         return r;

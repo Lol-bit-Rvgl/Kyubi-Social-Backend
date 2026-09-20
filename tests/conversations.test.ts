@@ -9,7 +9,7 @@ const mockPrisma = vi.hoisted(() => {
       user: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
       conversation: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
       conversationMember: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn() },
-      message: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
+      message: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
       followRequest: { updateMany: vi.fn() },
       ban: { findFirst: vi.fn(), findMany: vi.fn() },
       mute: { findFirst: vi.fn(), findMany: vi.fn() },
@@ -33,6 +33,7 @@ vi.mock('@/lib/socketio', () => mockSockets);
 
 import { prisma } from '@/lib/prisma';
 import { POST as postMessage, GET as getMessages } from '@/app/conversations/[id]/messages/route';
+import { POST as voteMessage } from '@/app/conversations/[id]/messages/[messageId]/vote/route';
 
 const m = prisma as unknown as PrismaMock;
 const me = baseUser({ id: 'user-1', username: 'sender_user' });
@@ -198,5 +199,123 @@ describe('Conversations / DMs - Mensajes Multimedia y Encuestas', () => {
     const data = await res.json();
     expect(data.data).toHaveLength(1);
     expect(data.data[0].body).toBe('Hola');
+  });
+
+  it('permite votar en una encuesta de DM y recalcula totalVotes y porcentaje', async () => {
+    const token = await tokenFor();
+    const pollMessage = {
+      id: 'msg-poll-1',
+      conversationId: 'conv-1',
+      senderId: 'user-2',
+      body: '📊 Encuesta: ¿Cena hoy?',
+      mediaUrl: null,
+      mediaType: 'poll',
+      extensions: {
+        poll: {
+          question: '¿Cena hoy?',
+          options: [
+            { id: 'opt_1', text: 'Pizza', votes: 0 },
+            { id: 'opt_2', text: 'Sushi', votes: 0 },
+          ],
+          votes: {},
+          totalVotes: 0,
+        },
+      },
+      createdAt: new Date(),
+      sender: { id: 'user-2', username: 'other_user', displayName: 'Other', avatarUrl: null },
+    };
+
+    (m.message.findUnique as any).mockResolvedValue(pollMessage);
+    (m.message.update as any).mockImplementation(({ data }: any) =>
+      Promise.resolve({
+        ...pollMessage,
+        extensions: data.extensions,
+      })
+    );
+
+    const res = await voteMessage(
+      jsonRequest('http://localhost/conversations/conv-1/messages/msg-poll-1/vote', {
+        method: 'POST',
+        token,
+        body: { optionId: 'opt_1' },
+      }),
+      { params: Promise.resolve({ id: 'conv-1', messageId: 'msg-poll-1' }) }
+    );
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.extensions?.poll?.totalVotes).toBe(1);
+    expect(data.extensions?.poll?.options[0].votes).toBe(1);
+    expect(data.extensions?.poll?.options[1].votes).toBe(0);
+    expect(data.extensions?.poll?.votes['user-1']).toBe('opt_1');
+    expect(mockSockets.emitToConversation).toHaveBeenCalledWith(
+      'conv-1',
+      'message:updated',
+      expect.objectContaining({ id: 'msg-poll-1' })
+    );
+  });
+
+  it('permite votar por optionIndex', async () => {
+    const token = await tokenFor();
+    const pollMessage = {
+      id: 'msg-poll-2',
+      conversationId: 'conv-1',
+      senderId: 'user-2',
+      body: '📊 Encuesta: ¿Día?',
+      mediaUrl: null,
+      mediaType: 'poll',
+      extensions: {
+        poll: {
+          question: '¿Día?',
+          options: [
+            { id: 'opt_1', text: 'Sábado', votes: 0 },
+            { id: 'opt_2', text: 'Domingo', votes: 0 },
+          ],
+          votes: {},
+          totalVotes: 0,
+        },
+      },
+      createdAt: new Date(),
+      sender: { id: 'user-2', username: 'other_user', displayName: 'Other', avatarUrl: null },
+    };
+
+    (m.message.findUnique as any).mockResolvedValue(pollMessage);
+    (m.message.update as any).mockImplementation(({ data }: any) =>
+      Promise.resolve({
+        ...pollMessage,
+        extensions: data.extensions,
+      })
+    );
+
+    const res = await voteMessage(
+      jsonRequest('http://localhost/conversations/conv-1/messages/msg-poll-2/vote', {
+        method: 'POST',
+        token,
+        body: { optionIndex: 1 },
+      }),
+      { params: Promise.resolve({ id: 'conv-1', messageId: 'msg-poll-2' }) }
+    );
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.extensions?.poll?.totalVotes).toBe(1);
+    expect(data.extensions?.poll?.options[1].votes).toBe(1);
+    expect(data.extensions?.poll?.votes['user-1']).toBe('opt_2');
+  });
+
+  it('rechaza con 403 si el usuario no es miembro de la conversación', async () => {
+    const token = await tokenFor();
+    (m.conversationMember.findUnique as any).mockResolvedValue(null);
+
+    const res = await voteMessage(
+      jsonRequest('http://localhost/conversations/conv-1/messages/msg-poll-1/vote', {
+        method: 'POST',
+        token,
+        body: { optionId: 'opt_1' },
+      }),
+      { params: Promise.resolve({ id: 'conv-1', messageId: 'msg-poll-1' }) }
+    );
+
+    expect(res.status).toBe(403);
   });
 });

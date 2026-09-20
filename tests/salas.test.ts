@@ -872,8 +872,8 @@ describe('salas', () => {
         data: expect.objectContaining({
           currentMode: 'standard',
           stageRoles: expect.arrayContaining([
-            expect.objectContaining({ id: 'role-1', isTaken: false, takenByUserId: null }),
-            expect.objectContaining({ id: 'role-2', isTaken: false, takenByUserId: null }),
+            expect.objectContaining({ id: 'slot-1', isTaken: false, takenByUserId: null }),
+            expect.objectContaining({ id: 'slot-2', isTaken: false, takenByUserId: null }),
           ]),
         }),
       })

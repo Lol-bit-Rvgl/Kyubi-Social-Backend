@@ -9,7 +9,7 @@ const mockPrisma = vi.hoisted(() => {
       user: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
       conversation: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
       conversationMember: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn() },
-      message: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+      message: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn() },
       followRequest: { updateMany: vi.fn() },
       ban: { findFirst: vi.fn(), findMany: vi.fn() },
       mute: { findFirst: vi.fn(), findMany: vi.fn() },
@@ -34,6 +34,8 @@ vi.mock('@/lib/socketio', () => mockSockets);
 import { prisma } from '@/lib/prisma';
 import { POST as postMessage, GET as getMessages } from '@/app/conversations/[id]/messages/route';
 import { POST as voteMessage } from '@/app/conversations/[id]/messages/[messageId]/vote/route';
+import { GET as getRooms } from '@/app/rooms/route';
+import { GET as getConversations } from '@/app/conversations/route';
 
 const m = prisma as unknown as PrismaMock;
 const me = baseUser({ id: 'user-1', username: 'sender_user' });
@@ -317,5 +319,182 @@ describe('Conversations / DMs - Mensajes Multimedia y Encuestas', () => {
     );
 
     expect(res.status).toBe(403);
+  });
+});
+
+describe('Inbox / Conversaciones - Exclusión de Chats Vacíos', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('excluye conversaciones sin mensajes y solo retorna aquellas con al menos un mensaje', async () => {
+    const token = await tokenFor();
+
+    const conversationWithMsg = {
+      id: 'conv-with-msg',
+      type: 'DIRECT',
+      title: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      members: [
+        {
+          id: 'mem-1',
+          userId: 'user-1',
+          role: 'MEMBER',
+          muted: false,
+          lastReadAt: new Date(),
+          lastReadMessageId: null,
+          user: {
+            id: 'user-1',
+            username: 'sender_user',
+            displayName: 'Sender',
+            avatarUrl: null,
+            usernameColor: null,
+            avatarFrame: null,
+            level: 1,
+            isOnline: true,
+            gender: null,
+            showGender: true,
+          },
+        },
+        {
+          id: 'mem-2',
+          userId: 'user-2',
+          role: 'MEMBER',
+          muted: false,
+          lastReadAt: new Date(),
+          lastReadMessageId: null,
+          user: {
+            id: 'user-2',
+            username: 'other_user',
+            displayName: 'Other',
+            avatarUrl: null,
+            usernameColor: null,
+            avatarFrame: null,
+            level: 1,
+            isOnline: true,
+            gender: null,
+            showGender: true,
+          },
+        },
+      ],
+      messages: [
+        {
+          id: 'msg-1',
+          conversationId: 'conv-with-msg',
+          senderId: 'user-2',
+          body: '¡Hola!',
+          mediaUrl: null,
+          mediaType: null,
+          replyToId: null,
+          characterId: null,
+          characterName: null,
+          characterAvatarUrl: null,
+          extensions: null,
+          editedAt: null,
+          deletedAt: null,
+          createdAt: new Date(),
+          sender: {
+            id: 'user-2',
+            username: 'other_user',
+            displayName: 'Other',
+            avatarUrl: null,
+            usernameColor: null,
+            avatarFrame: null,
+            level: 1,
+            isOnline: true,
+            gender: null,
+            showGender: true,
+          },
+        },
+      ],
+    };
+
+    const emptyConversation = {
+      id: 'conv-empty',
+      type: 'DIRECT',
+      title: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      members: [
+        {
+          id: 'mem-3',
+          userId: 'user-1',
+          role: 'MEMBER',
+          muted: false,
+          lastReadAt: new Date(),
+          lastReadMessageId: null,
+          user: {
+            id: 'user-1',
+            username: 'sender_user',
+            displayName: 'Sender',
+            avatarUrl: null,
+            usernameColor: null,
+            avatarFrame: null,
+            level: 1,
+            isOnline: true,
+            gender: null,
+            showGender: true,
+          },
+        },
+        {
+          id: 'mem-4',
+          userId: 'user-3',
+          role: 'MEMBER',
+          muted: false,
+          lastReadAt: new Date(),
+          lastReadMessageId: null,
+          user: {
+            id: 'user-3',
+            username: 'third_user',
+            displayName: 'Third',
+            avatarUrl: null,
+            usernameColor: null,
+            avatarFrame: null,
+            level: 1,
+            isOnline: true,
+            gender: null,
+            showGender: true,
+          },
+        },
+      ],
+      messages: [],
+    };
+
+    (m.conversation.findMany as any).mockResolvedValue([
+      conversationWithMsg,
+      emptyConversation,
+    ]);
+    (m.conversationMember.findMany as any).mockResolvedValue([]);
+    (m.message.count as any).mockResolvedValue(0);
+
+    // 1. Probar GET /rooms
+    const resRooms = await getRooms(
+      jsonRequest('http://localhost/rooms', { method: 'GET', token })
+    );
+    expect(resRooms.status).toBe(200);
+    const dataRooms = await resRooms.json();
+    expect(dataRooms.data).toHaveLength(1);
+    expect(dataRooms.data[0].id).toBe('conv-with-msg');
+    expect(dataRooms.data[0].lastMessage).not.toBeNull();
+    expect(dataRooms.data[0].lastMessage.body).toBe('¡Hola!');
+
+    // 2. Probar GET /conversations (reexportado)
+    const resConvs = await getConversations(
+      jsonRequest('http://localhost/conversations', { method: 'GET', token })
+    );
+    expect(resConvs.status).toBe(200);
+    const dataConvs = await resConvs.json();
+    expect(dataConvs.data).toHaveLength(1);
+    expect(dataConvs.data[0].id).toBe('conv-with-msg');
+
+    // Verificar que la consulta prisma incluyó messages: { some: {} }
+    expect(m.conversation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          messages: { some: {} },
+        }),
+      })
+    );
   });
 });

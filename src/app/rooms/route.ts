@@ -15,7 +15,10 @@ export const GET = withErrorHandling(async (request: Request) => {
   const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get('limit') ?? '30', 10) || 30));
 
   const conversations = await prisma.conversation.findMany({
-    where: { members: { some: { userId: session.userId } } },
+    where: {
+      members: { some: { userId: session.userId } },
+      messages: { some: {} },
+    },
     orderBy: { updatedAt: 'desc' },
     take: limit,
     include: conversationInclude,
@@ -27,7 +30,7 @@ export const GET = withErrorHandling(async (request: Request) => {
   });
   const byId = new Map(myMemberships.map((m) => [m.conversationId, m]));
 
-  const data = await Promise.all(
+  const serialized = await Promise.all(
     conversations.map(async (conversation) => {
       const membership = byId.get(conversation.id);
       let unreadCount = 0;
@@ -56,6 +59,8 @@ export const GET = withErrorHandling(async (request: Request) => {
       return serializeConversation(conversation, session.userId, unreadCount);
     })
   );
+
+  const data = serialized.filter((c) => c.lastMessage !== null);
 
   return ok({ data, total: data.length });
 });

@@ -11,7 +11,7 @@ export const GET = withErrorHandling(async (request: Request) => {
   if (!session?.userId) return fail('No autorizado', 401);
 
   const url = new URL(request.url);
-  const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get('limit') ?? '30', 10) || 30));
+  const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') ?? '50', 10) || 50));
   const circleId = url.searchParams.get('circleId');
   const q = (url.searchParams.get('q') ?? '').trim();
   const category = (
@@ -47,13 +47,6 @@ export const GET = withErrorHandling(async (request: Request) => {
       total: invitedRooms.length,
     });
   }
-
-  const myCircleMemberships = circleId
-    ? await prisma.circleMember.findUnique({
-        where: { circleId_userId: { circleId, userId: session.userId } },
-        select: { id: true },
-      })
-    : null;
 
   const myRooms = await prisma.roomParticipant.findMany({
     where: { userId: session.userId, role: { not: 'INVITED' } },
@@ -98,29 +91,38 @@ export const GET = withErrorHandling(async (request: Request) => {
         ]
       : [];
 
-  const where: Prisma.RoomWhereInput = {
-    status: RoomStatus.ACTIVE,
-    ...(circleId ? { circleId } : {}),
-    AND: [
-      ...categoryFilter,
-      ...(q
-        ? [{ OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { description: { contains: q, mode: 'insensitive' as const } }] }]
-        : []),
-      // Exploración general (sin círculo): solo salas públicas o privadas del
-      // propio usuario (participante/host). Las salas privadas de terceros NO
-      // aparecen en "Rooms"/"Recomendadas".
-      circleId
-        ? myCircleMemberships
-          ? {}
-          : { access: 'PUBLIC' }
-        : {
+  const where: Prisma.RoomWhereInput = circleId
+    ? {
+        circleId,
+        status: RoomStatus.ACTIVE,
+        ...(q
+          ? {
+              OR: [
+                { name: { contains: q, mode: 'insensitive' as const } },
+                { description: { contains: q, mode: 'insensitive' as const } },
+              ],
+            }
+          : {}),
+        ...(categoryFilter.length > 0 ? { AND: categoryFilter } : {}),
+      }
+    : {
+        status: RoomStatus.ACTIVE,
+        AND: [
+          ...categoryFilter,
+          ...(q
+            ? [{ OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { description: { contains: q, mode: 'insensitive' as const } }] }]
+            : []),
+          // Exploración general (sin círculo): solo salas públicas o privadas del
+          // propio usuario (participante/host). Las salas privadas de terceros NO
+          // aparecen en "Rooms"/"Recomendadas".
+          {
             OR: [
               { access: 'PUBLIC' },
               { participants: { some: { userId: session.userId, role: { not: 'INVITED' } } } },
             ],
           },
-    ],
-  };
+        ],
+      };
 
   const rooms = await prisma.room.findMany({
     where,

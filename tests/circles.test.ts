@@ -35,6 +35,7 @@ vi.mock('@/lib/prisma', () => ({ prisma: mockPrisma() }));
 import { prisma } from '@/lib/prisma';
 import { GET as listCircles, POST as createCircle } from '@/app/circles/route';
 import { GET as myCircles } from '@/app/circles/my-circles/route';
+import { GET as mineCircles } from '@/app/circles/mine/route';
 import { GET as searchCircles } from '@/app/circles/search/route';
 import { GET as getCircle, PATCH as patchCircle, DELETE as deleteCircle } from '@/app/circles/[circleId]/route';
 import { POST as joinCircle } from '@/app/circles/[circleId]/join/route';
@@ -117,12 +118,38 @@ describe('círculos', () => {
     const token = await tokenFor();
     m.circleMember.findMany.mockResolvedValue([{ circleId: 'circle-1', role: 'ADMIN' }]);
     m.circle.findMany.mockResolvedValue([baseCircle()]);
+    m.circle.count.mockResolvedValue(1);
 
     const res = await myCircles(jsonRequest('http://localhost/circles/my-circles', { token }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data[0].id).toBe('circle-1');
     expect(body.data[0].role).toBe('ADMIN');
+  });
+
+  it('GET /circles/mine devuelve círculos del usuario incluyendo privados', async () => {
+    const token = await tokenFor();
+    const privCircle = baseCircle({ id: 'priv-1', name: 'Círculo Oculto', isPrivate: true, creatorId: user.id });
+    m.circleMember.findMany.mockResolvedValue([]);
+    m.circle.findMany.mockResolvedValue([privCircle]);
+    m.circle.count.mockResolvedValue(1);
+
+    const res = await mineCircles(jsonRequest('http://localhost/circles/mine', { token }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data[0].id).toBe('priv-1');
+    expect(body.data[0].isPrivate).toBe(true);
+    expect(body.data[0].role).toBe('OWNER');
+    expect(m.circle.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            { creatorId: user.id },
+            { members: { some: { userId: user.id } } },
+          ]),
+        }),
+      })
+    );
   });
 
   it('GET search con q filtra por nombre', async () => {

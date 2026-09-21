@@ -15,9 +15,15 @@ export const GET = withErrorHandling(async (request: Request) => {
   const onlyMine = url.searchParams.get('mine') === 'true';
 
   const where = {
-    isPrivate: false,
+    ...(onlyMine
+      ? {
+          OR: [
+            { creatorId: session.userId },
+            { members: { some: { userId: session.userId } } },
+          ],
+        }
+      : { isPrivate: false }),
     ...(q ? { OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { description: { contains: q, mode: 'insensitive' as const } }] } : {}),
-    ...(onlyMine ? { members: { some: { userId: session.userId } } } : {}),
   };
 
   const circles = await prisma.circle.findMany({

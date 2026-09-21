@@ -113,19 +113,24 @@ describe('salas', () => {
     expect(m.room.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: 'ACTIVE' }) }));
   });
 
-  it('GET lista no muestra salas PRIVATE de círculo ajeno', async () => {
+  it('GET lista devuelve todas las salas activas asociadas al círculo al filtrar por circleId', async () => {
     const token = await tokenFor();
     m.roomParticipant.findMany.mockResolvedValue([]);
-    m.room.findMany.mockResolvedValue([]);
-    m.room.count.mockResolvedValue(0);
+    m.room.findMany.mockResolvedValue([
+      baseRoom({ id: 'room-pub', circleId: 'circle-1', access: 'PUBLIC' }),
+      baseRoom({ id: 'room-priv', circleId: 'circle-1', access: 'PRIVATE' }),
+    ]);
+    m.room.count.mockResolvedValue(2);
 
     const res = await listSalas(jsonRequest('http://localhost/salas?circleId=circle-1', { token }));
     expect(res.status).toBe(200);
-    expect(m.circleMember.findUnique).toHaveBeenCalled();
+    const body = await res.json();
+    expect(body.data).toHaveLength(2);
     expect(m.room.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          AND: expect.arrayContaining([{ access: 'PUBLIC' }]),
+          circleId: 'circle-1',
+          status: 'ACTIVE',
         }),
       })
     );

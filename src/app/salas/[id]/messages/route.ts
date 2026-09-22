@@ -235,6 +235,8 @@ function serializeRoomMessage(
     replyToId: (ext.replyToId || ext.replyTo?.id || null) as string | null,
     replyToName: (ext.replyToName || ext.replyTo?.authorName || ext.replyTo?.username || null) as string | null,
     replyToBody: (ext.replyToBody || ext.replyTo?.content || null) as string | null,
+    replyToMediaUrl: (ext.replyToMediaUrl || ext.replyTo?.mediaUrl || null) as string | null,
+    replyToType: (ext.replyToType || ext.replyTo?.type || null) as string | null,
     replyTo: (ext.replyTo || (ext.replyToId ? { id: ext.replyToId, authorName: ext.replyToName, content: ext.replyToBody } : null)) as any,
     isEdited: Boolean(ext.isEdited),
     editedAt: (ext.editedAt || null) as string | null,
@@ -287,6 +289,8 @@ const sendSchema = z.object({
       username: z.string().optional(),
       authorName: z.string().optional(),
       content: z.string().optional(),
+      mediaUrl: optionalSafeMediaUrl,
+      type: z.string().max(16).optional(),
     })
     .nullable()
     .optional(),
@@ -414,13 +418,27 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
 
   // Resolver mensaje citado si se envía replyToId o replyTo
   const targetReplyId = body.data.replyToId || body.data.replyTo?.id;
-  let replyData: { id: string; authorName: string; content: string } | null = null;
+  let replyData: {
+    id: string;
+    authorName: string;
+    content: string;
+    mediaUrl?: string | null;
+    type?: string | null;
+  } | null = null;
   if (targetReplyId) {
     const quoted = await prisma.roomMessage.findUnique({
       where: { id: targetReplyId },
       include: { sender: true },
     });
     if (quoted) {
+      const quotedExt = ((quoted.extensions ?? {}) as Record<string, any>) || {};
+      const quotedMediaUrl =
+        (typeof quotedExt.mediaUrl === 'string' && quotedExt.mediaUrl) ||
+        (quoted.type === 'IMAGE' || quoted.type === 'VOICE'
+          ? quoted.body.startsWith('http')
+            ? quoted.body
+            : null
+          : null);
       replyData = {
         id: quoted.id,
         authorName:
@@ -428,6 +446,8 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
           quoted.sender.displayName ||
           quoted.sender.username,
         content: quoted.body,
+        mediaUrl: quotedMediaUrl || null,
+        type: quoted.type,
       };
     } else if (body.data.replyTo) {
       replyData = {
@@ -437,6 +457,8 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
           body.data.replyTo.username ||
           'Usuario',
         content: body.data.replyTo.content || '',
+        mediaUrl: body.data.replyTo.mediaUrl ?? null,
+        type: body.data.replyTo.type ?? null,
       };
     }
   }
@@ -452,6 +474,8 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
           replyTo: replyData,
           replyToName: replyData.authorName,
           replyToBody: replyData.content,
+          ...(replyData.mediaUrl ? { replyToMediaUrl: replyData.mediaUrl } : {}),
+          ...(replyData.type ? { replyToType: replyData.type } : {}),
         }
       : {}),
   };

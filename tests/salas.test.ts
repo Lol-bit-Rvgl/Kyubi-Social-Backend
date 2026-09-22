@@ -1108,6 +1108,96 @@ describe('salas', () => {
       expect(data.replyToBody).toBe('Texto original de prueba');
       expect(data.replyTo.authorName).toBe('Zorro Sabio');
     });
+    it('persiste el mensaje del participante y lo emite a toda la sala por Socket.IO (room:message)', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', hostId: 'host-1' });
+      m.roomParticipant.findUnique.mockResolvedValue({ id: 'part-1', role: 'MEMBER' });
+      m.roomMessage.create.mockResolvedValue({
+        id: 'msg-broadcast',
+        roomId: 'room-1',
+        senderId: 'user-1',
+        type: 'TEXT',
+        body: 'Hola sala',
+        characterId: null,
+        characterName: null,
+        characterAvatarUrl: null,
+        extensions: { clientTempId: 'local-1' },
+        createdAt: new Date(),
+        sender: author,
+      });
+
+      const broadcasts: Array<{ room: string; event: string; payload: { id?: string; body?: string } }> = [];
+      (globalThis as any).__kyubiIo = {
+        to: (room: string) => ({
+          emit: (event: string, payload: unknown) =>
+            broadcasts.push({ room, event, payload: payload as { id?: string; body?: string } }),
+        }),
+        in: () => ({ emit: () => {}, fetchSockets: async () => [] }),
+        emit: () => {},
+      };
+
+      try {
+        const res = await postMessage(
+          jsonRequest('http://localhost/salas/room-1/messages', {
+            method: 'POST',
+            token,
+            body: { content: 'Hola sala', metadata: { clientTempId: 'local-1' } },
+          }),
+          { params: Promise.resolve({ id: 'room-1' }) }
+        );
+
+        expect(res.status).toBe(201);
+        expect(m.roomMessage.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              roomId: 'room-1',
+              senderId: 'user-1',
+              body: 'Hola sala',
+            }),
+          })
+        );
+
+        expect(broadcasts).toHaveLength(1);
+        expect(broadcasts[0].room).toBe('sala:room-1');
+        expect(broadcasts[0].event).toBe('room:message');
+        expect(broadcasts[0].payload.id).toBe('msg-broadcast');
+        expect(broadcasts[0].payload.body).toBe('Hola sala');
+      } finally {
+        delete (globalThis as any).__kyubiIo;
+      }
+    });
+
+    it('403 sin participación activa: no persiste ni emite nada a la sala', async () => {
+      const token = await tokenFor();
+      m.room.findUnique.mockResolvedValue({ id: 'room-1', status: 'ACTIVE', hostId: 'host-1' });
+      m.roomParticipant.findUnique.mockResolvedValue(null);
+
+      const broadcasts: string[] = [];
+      (globalThis as any).__kyubiIo = {
+        to: () => ({ emit: (event: string) => broadcasts.push(event) }),
+        in: () => ({ emit: () => {}, fetchSockets: async () => [] }),
+        emit: () => {},
+      };
+
+      try {
+        const res = await postMessage(
+          jsonRequest('http://localhost/salas/room-1/messages', {
+            method: 'POST',
+            token,
+            body: { content: 'Mensaje de visitante' },
+          }),
+          { params: Promise.resolve({ id: 'room-1' }) }
+        );
+
+        expect(res.status).toBe(403);
+        expect(m.roomMessage.create).not.toHaveBeenCalled();
+        expect(broadcasts).toEqual([]);
+      } finally {
+        delete (globalThis as any).__kyubiIo;
+      }
+    });
+
+
 
     it('rechaza mensaje con mediaUrl de protocolo inseguro (javascript:, data:)', async () => {
       const token = await tokenFor();

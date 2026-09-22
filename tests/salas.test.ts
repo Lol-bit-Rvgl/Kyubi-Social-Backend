@@ -1750,9 +1750,33 @@ describe('salas', () => {
       expect(data.role.name).toBe('Lyra');
     });
 
+    it('POST /salas/[id]/roles/occupy rechaza con 403 Forbidden si el usuario no es participante activo de la sala', async () => {
+      const token = await tokenFor('user-non-member');
+      const existingRoom = baseRoom({ hostId: 'user-1' });
+
+      m.room.findUnique.mockResolvedValue(existingRoom);
+      m.roomParticipant.findUnique.mockResolvedValue(null);
+
+      const res = await occupyRole(
+        jsonRequest('http://localhost/salas/room-1/roles/occupy', {
+          method: 'POST',
+          token,
+          body: { slotIndex: 0, roleSheetId: 'char-1' },
+        }),
+        { params: Promise.resolve({ id: 'room-1' }) }
+      );
+
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toBe(
+        'Debes unirte a la sala para poder participar en el Stage de Roleplay'
+      );
+    });
+
     it('POST /salas/[id]/roles/occupy rechaza con 409 Conflict si otro usuario intenta ocupar un slot tomado', async () => {
       const token = await tokenFor('user-2');
       const existingRoom = baseRoom({
+        hostId: 'user-1',
         stageRoles: [
           { id: 'slot-1', name: 'Guerrero', isTaken: true, takenByUserId: 'user-1', occupiedBy: 'user-1' },
           { id: 'slot-2', name: 'Mago', isTaken: false, isOccupied: false },
@@ -1760,6 +1784,11 @@ describe('salas', () => {
       });
 
       m.room.findUnique.mockResolvedValue(existingRoom);
+      m.roomParticipant.findUnique.mockResolvedValue({
+        id: 'rp-2',
+        role: 'PARTICIPANT',
+        leftAt: null,
+      });
       m.character.findFirst.mockResolvedValue({
         id: 'char-other',
         name: 'Sombra',

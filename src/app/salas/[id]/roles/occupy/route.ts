@@ -21,10 +21,29 @@ export const POST = withErrorHandling(
 
     const room = await prisma.room.findUnique({
       where: { id: roomId },
-      select: { id: true, status: true, stageRoles: true },
+      select: { id: true, status: true, stageRoles: true, hostId: true },
     });
     if (!room) return fail('Sala no encontrada', 404);
     if (room.status !== 'ACTIVE') return fail('La sala ha terminado', 400);
+
+    const isHost = room.hostId === session.userId;
+    const participant = await prisma.roomParticipant.findUnique({
+      where: { roomId_userId: { roomId, userId: session.userId } },
+      select: { id: true, role: true, leftAt: true },
+    });
+    const isMember =
+      isHost ||
+      Boolean(
+        participant &&
+          participant.role !== 'INVITED' &&
+          participant.leftAt === null
+      );
+    if (!isMember) {
+      return fail(
+        'Debes unirte a la sala para poder participar en el Stage de Roleplay',
+        403
+      );
+    }
 
     const character = await prisma.character.findFirst({
       where: { id: roleSheetId, userId: session.userId },

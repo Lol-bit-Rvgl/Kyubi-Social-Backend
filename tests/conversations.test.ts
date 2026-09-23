@@ -36,6 +36,14 @@ import { POST as postMessage, GET as getMessages } from '@/app/conversations/[id
 import { POST as voteMessage } from '@/app/conversations/[id]/messages/[messageId]/vote/route';
 import { GET as getRooms } from '@/app/rooms/route';
 import { GET as getConversations } from '@/app/conversations/route';
+import {
+  PATCH as editConversationMessage,
+  DELETE as deleteConversationMessage,
+} from '@/app/conversations/[id]/messages/[messageId]/route';
+import {
+  PATCH as editRoomMessage,
+  DELETE as deleteRoomMessage,
+} from '@/app/rooms/[id]/messages/[messageId]/route';
 
 const m = prisma as unknown as PrismaMock;
 const me = baseUser({ id: 'user-1', username: 'sender_user' });
@@ -496,5 +504,174 @@ describe('Inbox / Conversaciones - Exclusión de Chats Vacíos', () => {
         }),
       })
     );
+  });
+
+  describe('DMs — Editar y Eliminar Mensajes (PATCH & DELETE)', () => {
+    beforeEach(() => {
+      (m.conversationMember.findUnique as any).mockResolvedValue({
+        id: 'member-1',
+        conversationId: 'conv-1',
+        userId: 'user-1',
+      });
+      (m.conversationMember.findMany as any).mockResolvedValue([
+        { userId: 'user-2' },
+      ]);
+    });
+
+    it('permite al autor editar su mensaje y emite socket chat:message_updated', async () => {
+      const token = await tokenFor('user-1');
+      (m.message.findUnique as any).mockResolvedValue({
+        id: 'msg-1',
+        conversationId: 'conv-1',
+        senderId: 'user-1',
+        body: 'Texto original',
+        deletedAt: null,
+        sender: { id: 'user-1', username: 'sender_user', displayName: 'Sender', avatarUrl: null },
+      });
+      (m.message.update as any).mockImplementation(({ data }: any) =>
+        Promise.resolve({
+          id: 'msg-1',
+          conversationId: 'conv-1',
+          senderId: 'user-1',
+          body: data.body,
+          editedAt: data.editedAt,
+          deletedAt: null,
+          sender: { id: 'user-1', username: 'sender_user', displayName: 'Sender', avatarUrl: null },
+        })
+      );
+
+      const res = await editConversationMessage(
+        jsonRequest('http://localhost/conversations/conv-1/messages/msg-1', {
+          method: 'PATCH',
+          token,
+          body: { body: 'Texto editado y corregido' },
+        }),
+        { params: Promise.resolve({ id: 'conv-1', messageId: 'msg-1' }) }
+      );
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.body).toBe('Texto editado y corregido');
+      expect(data.editedAt).not.toBeNull();
+      expect(mockSockets.emitToConversation).toHaveBeenCalledWith(
+        'conv-1',
+        'chat:message_updated',
+        expect.objectContaining({ id: 'msg-1', body: 'Texto editado y corregido' })
+      );
+    });
+
+    it('impide a un usuario editar un mensaje ajeno (403)', async () => {
+      const token = await tokenFor('user-2'); // usuario diferente
+      (m.conversationMember.findUnique as any).mockResolvedValue({
+        id: 'member-2',
+        conversationId: 'conv-1',
+        userId: 'user-2',
+      });
+      (m.message.findUnique as any).mockResolvedValue({
+        id: 'msg-1',
+        conversationId: 'conv-1',
+        senderId: 'user-1', // autor es user-1
+        body: 'Texto original',
+        deletedAt: null,
+        sender: { id: 'user-1', username: 'sender_user', displayName: 'Sender', avatarUrl: null },
+      });
+
+      const res = await editConversationMessage(
+        jsonRequest('http://localhost/conversations/conv-1/messages/msg-1', {
+          method: 'PATCH',
+          token,
+          body: { body: 'Intento de edición no autorizada' },
+        }),
+        { params: Promise.resolve({ id: 'conv-1', messageId: 'msg-1' }) }
+      );
+
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toBe('Solo el autor puede editar su mensaje');
+    });
+
+    it('permite al autor eliminar su mensaje (soft-delete) y emite socket chat:message_deleted', async () => {
+      const token = await tokenFor('user-1');
+      (m.conversationMember.findUnique as any).mockResolvedValue({
+        id: 'member-1',
+        conversationId: 'conv-1',
+        userId: 'user-1',
+      });
+      (m.message.findUnique as any).mockResolvedValue({
+        id: 'msg-1',
+        conversationId: 'conv-1',
+        senderId: 'user-1',
+        deletedAt: null,
+      });
+      (m.message.update as any).mockResolvedValue({
+        id: 'msg-1',
+        body: 'Mensaje eliminado',
+        deletedAt: new Date(),
+      });
+
+      const res = await deleteConversationMessage(
+        jsonRequest('http://localhost/conversations/conv-1/messages/msg-1', {
+          method: 'DELETE',
+          token,
+        }),
+        { params: Promise.resolve({ id: 'conv-1', messageId: 'msg-1' }) }
+      );
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+      expect(data.messageId).toBe('msg-1');
+      expect(data.deletedAt).toBeDefined();
+
+      expect(mockSockets.emitToConversation).toHaveBeenCalledWith(
+        'conv-1',
+        'chat:message_deleted',
+        expect.objectContaining({
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          body: 'Mensaje eliminado',
+          isDeleted: true,
+        })
+      );
+    });
+
+    it('reexportado en /rooms/[id]/messages/[messageId] funciona idénticamente', async () => {
+      const token = await tokenFor('user-1');
+      (m.conversationMember.findUnique as any).mockResolvedValue({
+        id: 'member-1',
+        conversationId: 'conv-1',
+        userId: 'user-1',
+      });
+      (m.message.findUnique as any).mockResolvedValue({
+        id: 'msg-1',
+        conversationId: 'conv-1',
+        senderId: 'user-1',
+        body: 'Texto original',
+        deletedAt: null,
+        sender: { id: 'user-1', username: 'sender_user', displayName: 'Sender', avatarUrl: null },
+      });
+      (m.message.update as any).mockResolvedValue({
+        id: 'msg-1',
+        conversationId: 'conv-1',
+        senderId: 'user-1',
+        body: 'Texto editado vía rooms',
+        editedAt: new Date(),
+        deletedAt: null,
+        sender: { id: 'user-1', username: 'sender_user', displayName: 'Sender', avatarUrl: null },
+      });
+
+      const res = await editRoomMessage(
+        jsonRequest('http://localhost/rooms/conv-1/messages/msg-1', {
+          method: 'PATCH',
+          token,
+          body: { body: 'Texto editado vía rooms' },
+        }),
+        { params: Promise.resolve({ id: 'conv-1', messageId: 'msg-1' }) }
+      );
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.body).toBe('Texto editado vía rooms');
+    });
   });
 });

@@ -133,12 +133,12 @@ export default function AdminSidebar() {
       {/* ── Topbar móvil (< md) con Liquid Glass y Logo ── */}
       <header className="md:hidden fixed top-0 inset-x-0 z-40 h-16 backdrop-blur-xl bg-slate-950/75 border-b border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] flex items-center justify-between px-4">
         <Link href="/admin" className="flex items-center gap-2.5">
-          <div className="relative w-9 h-9 rounded-2xl p-1 bg-gradient-to-tr from-violet-600/30 to-fuchsia-600/30 border border-white/15 shadow-md shadow-violet-500/20 flex items-center justify-center overflow-hidden">
-            <div className="absolute inset-0 bg-violet-500/20 blur-sm" />
+          <div className="relative w-9 h-9 rounded-xl p-0.5 bg-gradient-to-tr from-violet-600/30 to-fuchsia-600/30 border border-white/15 shadow-md shadow-violet-500/25 flex items-center justify-center overflow-hidden">
+            <div className="absolute inset-0 bg-violet-500/20 blur-sm pointer-events-none" />
             <img
               src="/kyubi-logo.png"
               alt="Kyubi"
-              className="relative w-6 h-6 object-contain drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]"
+              className="relative w-full h-full object-cover rounded-[10px] drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]"
             />
           </div>
           <div>
@@ -210,12 +210,12 @@ function SidebarContent({
       <div className="px-5 pt-7 pb-6 border-b border-white/[0.06] shrink-0">
         <Link href="/admin" className="block group">
           <div className="flex items-center gap-3">
-            <div className="relative w-11 h-11 rounded-2xl p-1 bg-gradient-to-tr from-violet-600/30 via-purple-600/20 to-fuchsia-600/30 border border-white/15 shadow-lg shadow-violet-500/25 flex items-center justify-center overflow-hidden transition-transform duration-300 group-hover:scale-105">
-              <div className="absolute inset-0 bg-gradient-to-br from-violet-500/25 to-transparent blur-md" />
+            <div className="relative w-11 h-11 rounded-xl p-0.5 bg-gradient-to-tr from-violet-600/30 via-purple-600/20 to-fuchsia-600/30 border border-white/15 shadow-lg shadow-violet-500/25 flex items-center justify-center overflow-hidden transition-transform duration-300 group-hover:scale-105">
+              <div className="absolute inset-0 bg-gradient-to-br from-violet-500/25 to-transparent blur-md pointer-events-none" />
               <img
                 src="/kyubi-logo.png"
                 alt="Kyubi"
-                className="relative w-7 h-7 object-contain drop-shadow-[0_0_10px_rgba(168,85,247,0.6)]"
+                className="relative w-full h-full object-cover rounded-[10px] drop-shadow-[0_0_10px_rgba(168,85,247,0.6)]"
               />
             </div>
             <div>

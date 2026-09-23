@@ -38,6 +38,7 @@ export type PrismaMock = {
   conversation: { findFirst: Mock; findUnique: Mock; findMany: Mock; create: Mock; update: Mock; delete: Mock; count: Mock };
   conversationMember: { findFirst: Mock; findUnique: Mock; findMany: Mock; create: Mock; update: Mock; delete: Mock; count: Mock };
   block: { findFirst: Mock; findUnique: Mock; findMany: Mock; create: Mock; update: Mock; delete: Mock; upsert: Mock; count: Mock };
+  notification: { findMany: Mock; findUnique?: Mock; create: Mock; update?: Mock; updateMany: Mock; deleteMany?: Mock; count: Mock };
   $queryRawUnsafe: Mock;
   $queryRaw: Mock;
   $transaction: Mock;

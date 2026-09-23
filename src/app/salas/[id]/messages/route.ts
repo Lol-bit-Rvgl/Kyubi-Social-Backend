@@ -7,6 +7,7 @@ import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { emitToSala } from '@/lib/socketio';
 import { serializeAuthor } from '@/lib/serialize';
+import { notifyMentions } from '@/lib/notifications';
 import { optionalSafeHttpUrl, optionalSafeMediaUrl, safeHttpUrl } from '@/lib/validation';
 
 export const GET = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
@@ -518,6 +519,15 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   });
 
   emitToSala(id, 'room:message', serializeRoomMessage(message, session.userId));
+
+  void notifyMentions(
+    finalBody,
+    session.userId,
+    { type: 'room', id },
+    { hostId: room.hostId }
+  ).catch((err) => {
+    console.error('[notifyMentions] Error notificando menciones en sala:', err);
+  });
 
   return ok(serializeRoomMessage(message, session.userId), 201);
 });

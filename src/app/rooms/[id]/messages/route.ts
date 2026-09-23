@@ -7,6 +7,7 @@ import { sendPushNotification } from '@/lib/fcm';
 import { fail, ok, withErrorHandling } from '@/lib/http';
 import { prisma } from '@/lib/prisma';
 import { emitToConversation, emitToUser } from '@/lib/socketio';
+import { notifyMentions } from '@/lib/notifications';
 import { optionalSafeHttpUrl, optionalSafeMediaUrl } from '@/lib/validation';
 
 export const GET = withErrorHandling(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
@@ -308,5 +309,14 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
       });
     }
   }
+
+  void notifyMentions(
+    message.body,
+    session.userId,
+    { type: 'conversation', id }
+  ).catch((err) => {
+    console.error('[notifyMentions] Error notificando menciones en chat:', err);
+  });
+
   return ok(serializeMessage(message), 201);
 });

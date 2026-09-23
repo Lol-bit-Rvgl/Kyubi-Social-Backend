@@ -152,19 +152,35 @@ const MENTION_RE = /@([a-zA-Z0-9_]{1,32})/g;
 export async function notifyMentions(
   body: string,
   actorId: string,
-  target: Target
+  target: Target,
+  options?: { hostId?: string }
 ): Promise<void> {
+  const matches = body.match(MENTION_RE) ?? [];
+  const hasHostMention = /@host\b/i.test(body);
   const usernames = [
-    ...new Set((body.match(MENTION_RE) ?? []).map((m) => m.slice(1))),
-  ].slice(0, 5);
-  if (usernames.length === 0) return;
-  const users = await prisma.user.findMany({
-    where: { username: { in: usernames } },
-    select: { id: true },
-  });
-  for (const user of users) {
+    ...new Set(matches.map((m) => m.slice(1))),
+  ].slice(0, 10);
+
+  const targetUserIds = new Set<string>();
+
+  if (usernames.length > 0) {
+    const users = await prisma.user.findMany({
+      where: { username: { in: usernames, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    for (const u of users) {
+      targetUserIds.add(u.id);
+    }
+  }
+
+  if (hasHostMention && options?.hostId) {
+    targetUserIds.add(options.hostId);
+  }
+
+  for (const userId of targetUserIds) {
+    if (userId === actorId) continue;
     await notify({
-      userId: user.id,
+      userId,
       actorId,
       type: 'MENTION',
       target,
@@ -172,3 +188,4 @@ export async function notifyMentions(
     });
   }
 }
+

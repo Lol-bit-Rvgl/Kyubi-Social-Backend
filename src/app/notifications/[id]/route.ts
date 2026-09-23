@@ -26,3 +26,5 @@ export const DELETE = withErrorHandling(async (request: Request, { params }: { p
 
   return ok({ success: deleted.count > 0 });
 });
+
+export const PATCH = POST;

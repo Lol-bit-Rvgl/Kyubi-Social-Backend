@@ -160,6 +160,9 @@ export function serializePost(
             spoiler: post.warnSpoiler ?? false,
           }
         : null,
+    isEdited: post.isEdited ?? false,
+    createdAt: toIso(post.createdAt),
+    updatedAt: toIso(post.updatedAt),
     publishedAt: toIso(publishedAt),
     timeAgo: timeAgo(publishedAt),
     themeBgColor: post.themeBgColor,

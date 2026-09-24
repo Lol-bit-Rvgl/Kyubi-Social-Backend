@@ -142,12 +142,20 @@ describe('post [id]', () => {
     expect(res.status).toBe(403);
   });
 
-  it('PATCH 200 del autor', async () => {
+  it('PATCH 200 del autor fija isEdited: true', async () => {
     const token = await tokenFor();
     m.post.findUnique.mockResolvedValue(basePost());
-    m.post.update.mockResolvedValue({ ...basePost(), content: 'editado', author });
+    m.post.update.mockResolvedValue({ ...basePost(), content: 'editado', isEdited: true, author });
     const res = await patchPost(jsonRequest('http://localhost/api/posts/post-1', { method: 'PATCH', body: { content: 'editado' }, token }), { params: Promise.resolve({ id: 'post-1' }) });
     expect(res.status).toBe(200);
+    expect(m.post.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'post-1' },
+        data: expect.objectContaining({ content: 'editado', isEdited: true }),
+      })
+    );
+    const json = await res.json();
+    expect(json.isEdited).toBe(true);
   });
 
   it('DELETE 200 del autor', async () => {

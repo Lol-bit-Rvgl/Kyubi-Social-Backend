@@ -83,6 +83,7 @@ export function basePost(overrides: Record<string, unknown> = {}) {
     authorId: 'user-1',
     content: 'Hello world',
     visibility: 'PUBLIC',
+    isEdited: false,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,

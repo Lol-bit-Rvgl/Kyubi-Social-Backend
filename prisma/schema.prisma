@@ -350,6 +350,7 @@ model Post {
   hiddenByUserId String?   @map("hidden_by_user_id")
   hiddenBy       User?     @relation("PostHiddenBy", fields: [hiddenByUserId], references: [id], onDelete: SetNull)
   featuredUntil  DateTime? @map("featured_until")
+  isEdited       Boolean   @default(false) @map("is_edited")
 
   // ── Roleplay / OCs ──
   characterId        String? @db.VarChar(64)

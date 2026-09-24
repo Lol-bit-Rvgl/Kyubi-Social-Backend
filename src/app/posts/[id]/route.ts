@@ -95,7 +95,10 @@ export const PATCH = withErrorHandling(async (request: Request, { params }: { pa
   const data = { ...rest, ...(rawBody !== undefined ? { content: rawBody } : {}) };
   const updated = await prisma.post.update({
     where: { id },
-    data,
+    data: {
+      ...data,
+      isEdited: true,
+    },
     include: postFullInclude,
   });
   return ok(serializePost(updated, { myReactionKey: null }));

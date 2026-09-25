@@ -80,6 +80,21 @@ describe('subidas a la nube (S3-compatible)', () => {
     const url = await saveUpload(pngFile(), 'sticker');
     expect(url).toMatch(/^https:\/\/media\.example\.dev\/stickers\/.+\.webp$/);
   });
+
+  it('guarda audio m4a correctamente sin reencodificar con sharp', async () => {
+    const m4aBytes = Buffer.concat([
+      Buffer.from([0x00, 0x00, 0x00, 0x20]), // size
+      Buffer.from('ftypM4A ', 'ascii'),
+      Buffer.alloc(20),
+    ]);
+    const audioFile = new File([m4aBytes], 'voice_note.m4a', { type: 'audio/m4a' });
+    const url = await saveUpload(audioFile, 'media');
+
+    expect(url).toMatch(/^https:\/\/media\.example\.dev\/media\/.+\.m4a$/);
+    const command = s3Mocks.lastCommand;
+    expect(command).toBeDefined();
+    expect(command!.ContentType).toBe('audio/m4a');
+  });
 });
 
 describe('subidas en modo local (respaldo dev)', () => {

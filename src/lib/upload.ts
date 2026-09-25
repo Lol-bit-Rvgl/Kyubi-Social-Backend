@@ -9,9 +9,14 @@ const EXT_BY_MIME: Record<string, string> = {
   'image/webp': '.webp',
   'image/gif': '.gif',
   'audio/mp4': '.m4a',
+  'audio/m4a': '.m4a',
+  'audio/x-m4a': '.m4a',
+  'audio/aac': '.aac',
   'audio/mpeg': '.mp3',
+  'audio/mp3': '.mp3',
   'audio/ogg': '.ogg',
   'audio/wav': '.wav',
+  'audio/x-wav': '.wav',
   'video/mp4': '.mp4',
   'video/quicktime': '.mov',
 };
@@ -37,9 +42,14 @@ export const ALLOWED_UPLOAD_MIMES: ReadonlySet<string> = new Set([
   'image/avif',
   'image/tiff',
   'audio/mp4',
+  'audio/m4a',
+  'audio/x-m4a',
+  'audio/aac',
   'audio/mpeg',
+  'audio/mp3',
   'audio/ogg',
   'audio/wav',
+  'audio/x-wav',
   'video/mp4',
   'video/quicktime',
 ]);
@@ -56,6 +66,7 @@ const EXT_MIME: Record<string, string> = {
   '.mp4': 'video/mp4',
   '.mov': 'video/quicktime',
   '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
   '.mp3': 'audio/mpeg',
   '.ogg': 'audio/ogg',
   '.wav': 'audio/wav',
@@ -100,9 +111,14 @@ export function validateUpload(file: File, kind: string): string | null {
 
 const AV_MIME_DESCRIPTIONS: Record<string, string> = {
   'audio/mp4': 'MP4/M4A',
+  'audio/m4a': 'MP4/M4A',
+  'audio/x-m4a': 'MP4/M4A',
+  'audio/aac': 'AAC',
   'audio/mpeg': 'MP3',
+  'audio/mp3': 'MP3',
   'audio/ogg': 'OGG',
   'audio/wav': 'WAV',
+  'audio/x-wav': 'WAV',
   'video/mp4': 'MP4',
   'video/quicktime': 'MOV',
 };
@@ -115,12 +131,15 @@ export function sniffMime(bytes: Buffer): string | null {
   if (bytes.length < 12) return null;
 
   // MP4/MOV/M4A: bytes 4..7 == 'ftyp' (ISO BMFF). La marca en 8..11 distingue
-  // brand: 'qt  ' → QuickTime MOV; el resto (isom/mp42/M4A …) → mp4.
+  // brand: 'qt  ' → QuickTime MOV; m4a/m4b → audio/mp4; el resto → mp4.
   if (bytes.toString('ascii', 4, 8) === 'ftyp') {
-    const brand = bytes.toString('ascii', 8, 12);
+    const brand = bytes.toString('ascii', 8, 12).toLowerCase();
     if (brand.startsWith('qt')) return 'video/quicktime';
+    if (brand.startsWith('m4a') || brand.startsWith('m4b')) return 'audio/mp4';
     return 'video/mp4';
   }
+  // AAC ADTS: 0xFFF (12 bits syncword: byte 0 is 0xFF, byte 1 top 4 bits are 0xF)
+  if (bytes[0] === 0xff && (bytes[1] & 0xf0) === 0xf0) return 'audio/aac';
   // MP3: cabecera ID3 o frame MPEG sync (0xFF Ex/Fx).
   if (bytes.toString('ascii', 0, 3) === 'ID3') return 'audio/mpeg';
   if (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) return 'audio/mpeg';
@@ -146,12 +165,23 @@ export function validateMediaContent(bytes: Buffer, mime: string): string | null
   if (!sniffed) {
     return `El contenido no parece un archivo ${AV_MIME_DESCRIPTIONS[mime]} válido`;
   }
-  // Tolerancia razonable: mp4 y mov comparten contenedor ISO BMFF; un .mp4
-  // real se acepta como quicktime y viceversa.
+  // Tolerancia razonable: mp4, mov y m4a comparten contenedor ISO BMFF; un .mp4
+  // real se acepta como quicktime / audio/mp4 / audio/m4a y viceversa.
+  const isIsoBmff = (m: string) =>
+    m === 'video/mp4' ||
+    m === 'video/quicktime' ||
+    m === 'audio/mp4' ||
+    m === 'audio/m4a' ||
+    m === 'audio/x-m4a';
+
+  const isAudioMpeg = (m: string) => m === 'audio/mpeg' || m === 'audio/mp3';
+  const isAudioWav = (m: string) => m === 'audio/wav' || m === 'audio/x-wav';
+
   const compatible =
     sniffed === mime ||
-    (sniffed === 'video/mp4' && mime === 'video/quicktime') ||
-    (sniffed === 'video/quicktime' && mime === 'video/mp4');
+    (isIsoBmff(sniffed) && isIsoBmff(mime)) ||
+    (isAudioMpeg(sniffed) && isAudioMpeg(mime)) ||
+    (isAudioWav(sniffed) && isAudioWav(mime));
   if (!compatible) {
     return `El contenido del archivo no coincide con el tipo ${AV_MIME_DESCRIPTIONS[mime]}`;
   }

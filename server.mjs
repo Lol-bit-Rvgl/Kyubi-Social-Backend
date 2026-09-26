@@ -175,6 +175,8 @@ const io = new SocketIOServer(server, {
     methods: ['GET', 'POST'],
     credentials: true,
   },
+  pingInterval: 10000,
+  pingTimeout: 5000,
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1478,6 +1480,10 @@ io.use((socket, nextFn) => {
 });
 
 io.on('connection', (socket) => {
+  socket.on('ping', () => {
+    socket.emit('pong');
+  });
+
   // Join personal room for targeted notification push
   if (socket.data.userId) {
     socket.join(`user:${socket.data.userId}`);

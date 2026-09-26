@@ -268,8 +268,8 @@ function serializeRoomMessage(
 }
 
 const sendSchema = z.object({
-  body: z.string().trim().max(4000).optional().default(''),
-  content: z.string().trim().max(4000).optional(),
+  body: z.string().trim().max(4000, 'El mensaje no puede superar los 4000 caracteres').optional().default(''),
+  content: z.string().trim().max(4000, 'El mensaje no puede superar los 4000 caracteres').optional(),
   mediaUrl: optionalSafeMediaUrl,
   attachments: z.array(safeHttpUrl).max(5, 'Máximo 5 adjuntos por mensaje').optional(),
 
@@ -371,7 +371,10 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   if (!participant && !isHost) return fail('Debes entrar a la sala para enviar mensajes', 403);
 
   const body = sendSchema.safeParse(await request.json().catch(() => null));
-  if (!body.success) return fail('Mensaje inválido', 400);
+  if (!body.success) {
+    const errorMsg = body.error.issues?.[0]?.message || 'Mensaje inválido';
+    return fail(errorMsg, 400);
+  }
 
   const rawBody =
     body.data.body ||

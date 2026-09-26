@@ -65,8 +65,8 @@ export const GET = withErrorHandling(async (request: Request, { params }: { para
 });
 
 const sendSchema = z.object({
-  body: z.string().trim().max(4000).optional().default(''),
-  content: z.string().trim().max(4000).optional(),
+  body: z.string().trim().max(4000, 'El mensaje no puede superar los 4000 caracteres').optional().default(''),
+  content: z.string().trim().max(4000, 'El mensaje no puede superar los 4000 caracteres').optional(),
   type: z.string().trim().optional(),
   mediaUrl: optionalSafeMediaUrl,
   mediaType: z.string().nullable().optional(),
@@ -112,7 +112,10 @@ export const POST = withErrorHandling(async (request: Request, { params }: { par
   if (!membership) return fail('No autorizado', 403);
 
   const body = sendSchema.safeParse(await request.json().catch(() => null));
-  if (!body.success) return fail('Datos inválidos');
+  if (!body.success) {
+    const errorMsg = body.error.issues?.[0]?.message || 'Datos inválidos';
+    return fail(errorMsg, 400);
+  }
 
   const rawBody = body.data.body || body.data.content || '';
   const mediaUrl = body.data.mediaUrl || body.data.stickerUrl || null;

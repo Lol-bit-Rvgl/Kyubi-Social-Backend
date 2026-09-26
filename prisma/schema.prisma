@@ -548,7 +548,7 @@ model Message {
   id             String  @id @default(cuid())
   conversationId String
   senderId       String
-  body           String  @db.VarChar(4000)
+  body           String  @db.Text
   mediaUrl       String?
   mediaType      String?
   replyToId      String?
@@ -698,7 +698,7 @@ model RoomMessage {
   type RoomMessageType @default(TEXT)
 
   /// Texto del mensaje o URL del contenido multimedia (voz/imagen).
-  body String @db.VarChar(4000)
+  body String @db.Text
 
   // ── Roleplay / OCs ──
   characterId        String? @db.VarChar(64)

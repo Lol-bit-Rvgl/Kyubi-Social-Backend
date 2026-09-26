@@ -6,8 +6,8 @@ import { prisma } from '@/lib/prisma';
 import { emitToConversation, emitToUser } from '@/lib/socketio';
 
 const editSchema = z.object({
-  body: z.string().trim().min(1).max(4000).optional(),
-  content: z.string().trim().min(1).max(4000).optional(),
+  body: z.string().trim().min(1).max(4000, 'El mensaje no puede superar los 4000 caracteres').optional(),
+  content: z.string().trim().min(1).max(4000, 'El mensaje no puede superar los 4000 caracteres').optional(),
 });
 
 export const PATCH = withErrorHandling(
@@ -45,7 +45,10 @@ export const PATCH = withErrorHandling(
 
     const json = await request.json().catch(() => null);
     const parsed = editSchema.safeParse(json);
-    if (!parsed.success) return fail('Contenido inválido', 400);
+    if (!parsed.success) {
+      const errorMsg = parsed.error.issues?.[0]?.message || 'Contenido inválido';
+      return fail(errorMsg, 400);
+    }
 
     const newContent = parsed.data.body || parsed.data.content;
     if (!newContent) {

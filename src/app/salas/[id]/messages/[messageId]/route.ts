@@ -32,8 +32,8 @@ async function canManageRoom(roomId: string, userId: string) {
 }
 
 const editSchema = z.object({
-  content: z.string().trim().min(1).max(4000).optional(),
-  body: z.string().trim().min(1).max(4000).optional(),
+  content: z.string().trim().min(1).max(4000, 'El mensaje no puede superar los 4000 caracteres').optional(),
+  body: z.string().trim().min(1).max(4000, 'El mensaje no puede superar los 4000 caracteres').optional(),
 });
 
 export const PATCH = withErrorHandling(
@@ -69,7 +69,10 @@ export const PATCH = withErrorHandling(
     }
 
     const body = editSchema.safeParse(await request.json().catch(() => null));
-    if (!body.success) return fail('Contenido inválido', 400);
+    if (!body.success) {
+      const errorMsg = body.error.issues?.[0]?.message || 'Contenido inválido';
+      return fail(errorMsg, 400);
+    }
 
     const newContent = body.data.content || body.data.body;
     if (!newContent) {

@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { requireSession } from '@/lib/auth';
 import { fail, ok, withErrorHandling } from '@/lib/http';
+import { meSelect, serializeMe } from '@/lib/me';
 import { prisma } from '@/lib/prisma';
 
 const schema = z.object({
@@ -21,7 +22,7 @@ export const PATCH = withErrorHandling(async (request: Request) => {
   const user = await prisma.user.update({
     where: { id: session.userId },
     data: { availability },
-    select: { id: true, availability: true },
+    select: meSelect,
   });
-  return ok({ id: user.id, availability: user.availability });
+  return ok({ ...serializeMe(user), id: user.id, availability: user.availability });
 });

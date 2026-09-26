@@ -248,6 +248,7 @@ export type PublicUser = {
   onboardingCompleted?: boolean | null;
   createdAt?: Date | string;
   themeSettings?: unknown;
+  availability?: unknown;
   _count?: { followers?: number; following?: number; posts?: number; visitsReceived?: number } | null;
   visitsCount?: number;
 };
@@ -285,6 +286,7 @@ export function serializeUser(user: PublicUser, opts: { isFollowing?: boolean; i
     avatarFrame: user.avatarFrame,
     level: user.level ?? 1,
     isOnline: user.isOnline ?? false,
+    availability: (user as any).availability ?? null,
     gender: user.gender,
     showGender: user.showGender ?? true,
     emailVerifiedAt: opts.isMe ? toIso(user.emailVerifiedAt) ?? null : undefined,

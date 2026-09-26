@@ -30,6 +30,11 @@ const editable = z.object({
   interests: z.array(z.string()).optional(),
   socialLinks: z.record(z.unknown()).optional(),
   voiceBioUrl: optionalSafeHttpUrl,
+  availability: z.object({
+    status: z.string().optional(),
+    message: z.string().nullable().optional(),
+    minutes: z.number().int().min(0).max(10080).nullable().optional(),
+  }).optional(),
 });
 
 export const GET = withErrorHandling(async (request: Request) => {
